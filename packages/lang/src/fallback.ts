@@ -1,6 +1,7 @@
 import type { Catalog } from '@tessera/catalog';
 import { RESOLVED_PROP } from '@tessera/catalog';
 import { bindingNames } from './codegen';
+import { voidComponents } from './compile';
 import { Diagnostics } from './diagnostics';
 import { NOOP, Scope, evaluate, toText, type Fuel } from './evaluate';
 import { guardExpression } from './guard';
@@ -31,7 +32,7 @@ const PLACEHOLDER = '…';
  */
 export function toFallbackMarkdown(source: string, { catalog, data = {}, state = {}, fuel = 200_000 }: FallbackOptions): string {
   const diags = new Diagnostics();
-  const { nodes, directives } = parse(tokenize(source, diags), diags);
+  const { nodes, directives } = parse(tokenize(source, diags), diags, voidComponents(catalog));
   const ui = toUI(nodes, catalog, diags);
   const budget: Fuel = { remaining: fuel };
 

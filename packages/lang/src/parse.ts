@@ -60,8 +60,12 @@ const DIRECTIVE = /^(state|let)\s+([A-Za-z_$][\w$]*)\s*=\s*([\s\S]+)$/;
 /**
  * Builds the node tree. Unclosed elements and blocks at the end are closed when they already have content
  * and dropped when they are empty, so a half-written source still yields a usable tree.
+ *
+ * `voidNames` are components that take no children. Like HTML void elements they never open a scope: a `<Divider>`
+ * written without the slash is treated as `<Divider />`, so it cannot swallow the rest of the answer, and a matching
+ * `</Divider>` is ignored. (Both models in the M5 benchmark lost whole sections to exactly this.)
  */
-export function parse(tokens: readonly Token[], diags: Diagnostics): ParseResult {
+export function parse(tokens: readonly Token[], diags: Diagnostics, voidNames: ReadonlySet<string> = new Set()): ParseResult {
   const root: Frame = { type: 'root', children: [] };
   const stack: Frame[] = [root];
   const directives: Directive[] = [];
@@ -76,8 +80,11 @@ export function parse(tokens: readonly Token[], diags: Diagnostics): ParseResult
         top().children.push({ kind: 'expr', source: tok.source, pos: tok.pos });
         break;
       case 'directive': {
-        if (stack.length > 1) {
-          diags.error('directive_not_top_level', `{@${tok.source}} must be at the top level`, tok.pos);
+        // Elements open no scope, so a directive nested only in elements means the same at the top level. Models often
+        // wrap a whole answer in <Box> (one benchmark answer lost every name to this). Inside {#if} or {#each} it would
+        // mean something else, so it stays an error there.
+        if (stack.some((f) => f.type === 'if' || f.type === 'each')) {
+          diags.error('directive_not_top_level', `{@${tok.source}} must be at the top level, not inside {#if} or {#each}`, tok.pos);
           break;
         }
         const m = DIRECTIVE.exec(tok.source);
@@ -85,19 +92,26 @@ export function parse(tokens: readonly Token[], diags: Diagnostics): ParseResult
           diags.error('unknown_directive', `Unknown directive {@${tok.source}}`, tok.pos);
           break;
         }
+        if (stack.length > 1) diags.warn('directive_hoisted', `{@${m[1]} ${m[2]}} is inside an element; it was moved to the top level`, tok.pos);
         directives.push({ kind: m[1] as 'state' | 'let', name: m[2]!, source: m[3]!.trim(), pos: tok.pos });
         break;
       }
       case 'open': {
         const node: ElementNode = { kind: 'element', name: tok.name, attrs: tok.attrs, children: [], pos: tok.pos };
         top().children.push(node);
-        if (!tok.self) stack.push({ type: 'element', node, children: node.children, parent: top().children });
+        if (tok.self) break;
+        if (voidNames.has(tok.name)) {
+          diags.warn('missing_self_close', `<${tok.name}> takes no children; treated as <${tok.name} />`, tok.pos);
+          break;
+        }
+        stack.push({ type: 'element', node, children: node.children, parent: top().children });
         break;
       }
       case 'close': {
         const at = findFrame(stack, (f) => f.type === 'element' && f.node.name === tok.name);
         if (at < 0) {
-          diags.error('mismatched_close', `</${tok.name}> has no matching open tag`, tok.pos);
+          // The closing half of a void component written as <Divider></Divider>: nothing to close.
+          if (!voidNames.has(tok.name)) diags.error('mismatched_close', `</${tok.name}> has no matching open tag`, tok.pos);
           break;
         }
         closeAbove(stack, at, diags);

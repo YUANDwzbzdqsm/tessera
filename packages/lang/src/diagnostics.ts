@@ -4,6 +4,7 @@ export type DiagnosticCode =
   | 'unterminated_tag'
   | 'malformed_tag'
   | 'unclosed_element'
+  | 'missing_self_close'
   | 'unclosed_block'
   | 'mismatched_close'
   | 'stray_block'
@@ -15,6 +16,7 @@ export type DiagnosticCode =
   // Directives and names.
   | 'unknown_directive'
   | 'directive_not_top_level'
+  | 'directive_hoisted'
   | 'duplicate_name'
   | 'reserved_name'
   // Expressions.

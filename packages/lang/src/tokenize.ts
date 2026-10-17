@@ -26,6 +26,28 @@ export type Token =
 
 const UPPER = /[A-Z]/;
 const ATTR_NAME = /^[A-Za-z_][\w-]*/;
+const TAG_NAME = /^([A-Z][A-Za-z0-9]*|[a-z][a-z0-9]*)/;
+
+/**
+ * Models sometimes write raw HTML (`<input type="number">`, `<div style=…>`). Read as text it would show up on screen
+ * as markup, so these names are tokenized as tags and then dropped as unknown components. Only known element names
+ * count, so prose such as `x <y` stays text.
+ */
+const HTML_TAGS = new Set(
+  ('a abbr article aside audio b blockquote br button canvas caption code dd details div dl dt em fieldset figure footer ' +
+    'form h1 h2 h3 h4 h5 h6 header hr i iframe img input label li main mark meter nav ol option p pre progress section ' +
+    'select small span strong style sub summary sup svg table tbody td textarea tfoot th thead tr u ul video').split(' '),
+);
+const HTML_VOID = new Set(['br', 'hr', 'img', 'input']);
+
+/** Whether `<` at `i` (after an optional `/`) starts a tag name: a component, or a known HTML element. */
+function tagNameAt(src: string, i: number): boolean {
+  if (UPPER.test(src[i] ?? '')) return true;
+  const m = /^[a-z][a-z0-9]*/.exec(src.slice(i, i + 12));
+  if (!m || !HTML_TAGS.has(m[0])) return false;
+  const after = src[i + m[0].length];
+  return after === undefined || after === '>' || after === '/' || /\s/.test(after);
+}
 
 /**
  * Splits source into tokens. An incomplete construct at the end (an unclosed `{`, a tag without `>`)
@@ -69,8 +91,8 @@ export function tokenize(src: string, diags: Diagnostics): Token[] {
       continue;
     }
 
-    if (c === '<' && next === '/' && UPPER.test(src[i + 2] ?? '')) {
-      const m = /^<\/([A-Z][A-Za-z0-9]*)\s*>/.exec(src.slice(i));
+    if (c === '<' && next === '/' && tagNameAt(src, i + 2)) {
+      const m = /^<\/([A-Z][A-Za-z0-9]*|[a-z][a-z0-9]*)\s*>/.exec(src.slice(i));
       if (!m) {
         if (src.indexOf('>', i) < 0) {
           diags.warn('unterminated_tag', 'Closing tag without >; the rest of the source was dropped', i);
@@ -86,7 +108,7 @@ export function tokenize(src: string, diags: Diagnostics): Token[] {
       continue;
     }
 
-    if (c === '<' && UPPER.test(next)) {
+    if (c === '<' && tagNameAt(src, i + 1)) {
       const r = readOpenTag(src, i);
       if (r === 'unterminated') {
         diags.warn('unterminated_tag', 'Tag without >; the rest of the source was dropped', i);
@@ -134,11 +156,11 @@ type OpenTagResult =
   | { kind: 'ok'; token: Token; end: number };
 
 function readOpenTag(src: string, start: number): OpenTagResult {
-  const nameMatch = /^<([A-Z][A-Za-z0-9]*)/.exec(src.slice(start));
+  const nameMatch = TAG_NAME.exec(src.slice(start + 1));
   if (!nameMatch) return 'unterminated';
   const name = nameMatch[1]!;
   const attrs: RawAttr[] = [];
-  let i = start + nameMatch[0].length;
+  let i = start + 1 + nameMatch[0].length;
   const malformed = (): OpenTagResult => {
     const gt = src.indexOf('>', i);
     return gt < 0 ? 'unterminated' : { kind: 'malformed', end: gt + 1 };
@@ -149,7 +171,7 @@ function readOpenTag(src: string, start: number): OpenTagResult {
     if (i >= src.length) return 'unterminated';
     if (src.startsWith('/>', i)) return { kind: 'ok', token: { t: 'open', name, attrs, self: true, pos: start }, end: i + 2 };
     if (src[i] === '/') return i + 1 >= src.length ? 'unterminated' : malformed();
-    if (src[i] === '>') return { kind: 'ok', token: { t: 'open', name, attrs, self: false, pos: start }, end: i + 1 };
+    if (src[i] === '>') return { kind: 'ok', token: { t: 'open', name, attrs, self: HTML_VOID.has(name), pos: start }, end: i + 1 };
 
     const attrMatch = ATTR_NAME.exec(src.slice(i));
     if (!attrMatch) return malformed();

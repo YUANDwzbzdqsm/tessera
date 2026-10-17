@@ -15,7 +15,10 @@ Syntax
 - Prose is plain Markdown: # / ## / ### headings, paragraphs, "- " and "1. " lists, **bold**, *italic*, \`code\`.
 - Components come from the catalog below and are written like JSX: <Box gap={2}> … </Box>, <Slider min={1} max={50} value={seats} onChange={setSeats} />.
   Use only the listed components and props. Attribute values are "text", {expression}, or a bare name meaning true.
-- {@state seats = 8} declares state named seats with the setter setSeats. Write it on its own line at the top level.
+  No HTML elements (<div>, <input>, <span> …) and no style attributes: they are dropped.
+  Components marked "no children" are always self-closing: <Divider />, <Slider … />, <Progress … />, <Image … />.
+- {@state seats = 8} declares state named seats with the setter setSeats. Write it on its own line at the top level,
+  before any component: never inside <Box>, {#if} or {#each}.
 - {@let price = seats * 29} declares a derived value. Also on its own line at the top level, after what it uses.
 - {expression} inserts a value into text. Expressions are JavaScript: arithmetic, comparisons, ternaries, template strings,
   array methods and arrow functions. No assignment, no new, no loops, no this.
@@ -23,7 +26,9 @@ Syntax
 - {#each items as item, i} … {/each} repeats content.
 - ui.send("text") sends a new message from the user; ui.copy("text") copies text; ui.open("https://…") opens a link.
 - Tool results are available by name (for example p1). Show their values with {p1.price} or pass them as props;
-  never retype a value from a tool result. Names you were not given do not exist.
+  never retype a value from a tool result, in components or in sentences: write "最便宜的是 {cheapest.title}，{cheapest.price}",
+  not the name or price itself. Derive what you need with @let (sorting, filtering, picking the best). Names you were
+  not given do not exist.
 - Components marked as resolved by the server (such as <Image query="…">) take literal descriptions; never write URLs.
 - Put directives, block tags and block-level components on their own lines. Write \\{ for a literal brace.
 

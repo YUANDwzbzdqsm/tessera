@@ -275,6 +275,37 @@ textarea {
   background: #e4ebfc;
   color: var(--accent);
 }
+.t-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.t-progress-track {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--sunken);
+  overflow: hidden;
+}
+.t-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+.t-progress-neutral {
+  background: var(--muted);
+}
+.t-progress-info {
+  background: var(--accent);
+}
+.t-progress-success {
+  background: var(--ok);
+}
+.t-progress-warning {
+  background: var(--warn);
+}
+.t-progress-danger {
+  background: var(--bad);
+}
 .t-divider {
   border: 0;
   border-top: 1px solid var(--line);

@@ -30,6 +30,11 @@ export interface CompileResult extends CompiledProgram {
   readonly resolutions: readonly Resolution[];
 }
 
+/** Components that take no children, which the parser treats as self-closing. */
+export function voidComponents(catalog: Catalog): ReadonlySet<string> {
+  return new Set(catalog.specs().filter((s) => s.children === 'none').map((s) => s.name));
+}
+
 /**
  * Compiles Tessera markup. Works on complete sources and on streaming prefixes alike:
  * incomplete constructs at the end are dropped and unclosed elements with content are closed.
@@ -37,7 +42,7 @@ export interface CompileResult extends CompiledProgram {
 export function compile(source: string, { catalog, data = {} }: CompileOptions): CompileResult {
   const diags = new Diagnostics();
   const tokens = tokenize(source, diags);
-  const { nodes, directives } = parse(tokens, diags);
+  const { nodes, directives } = parse(tokens, diags, voidComponents(catalog));
   const ui = toUI(nodes, catalog, diags);
   const constants: string[] = [];
   const resolutions: Resolution[] = [];

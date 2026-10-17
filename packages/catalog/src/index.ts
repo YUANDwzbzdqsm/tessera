@@ -237,6 +237,17 @@ export const starterComponents: readonly ComponentSpec[] = [
     children: 'inline',
     fallback: (_, children) => `\`${children}\``,
   }),
+  defineComponent({
+    name: 'Progress',
+    description: 'A read-only bar filled to value out of max (default 100): completion rates, shares, bars to compare.',
+    props: z.object({
+      value: z.number(),
+      max: z.number().positive().optional(),
+      label: z.string().optional(),
+      tone: z.enum(['neutral', 'info', 'success', 'warning', 'danger']).optional(),
+    }),
+    fallback: (p) => `${text(p.label) || 'Progress'}: ${text(p.value)} / ${text(p.max ?? 100)}`,
+  }),
   defineComponent({ name: 'Divider', description: 'A horizontal rule.', fallback: () => '---' }),
   defineComponent({
     name: 'Image',

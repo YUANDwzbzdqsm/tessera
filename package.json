@@ -14,7 +14,8 @@
     "test:sandbox": "vitest run -c vitest.sandbox.config.ts",
     "e2e": "node scripts/e2e.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "check": "npm run typecheck && npm test && npm run test:sandbox"
+    "check": "npm run typecheck && npm test && npm run test:sandbox",
+    "eval": "node scripts/eval.mjs"
   },
   "devDependencies": {
     "@types/node": "22.20.5",

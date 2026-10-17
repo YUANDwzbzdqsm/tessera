@@ -89,7 +89,36 @@ describe('compile: catalog contract', () => {
     expect(codes('<Box gap="1">x</Box>')).toEqual(['invalid_literal']);
     expect(codes('<Box gap={99}>x</Box>')).toEqual(['invalid_literal']);
     expect(codes('<Button onClick="go">x</Button>')).toEqual(['invalid_literal']);
-    expect(codes('<Divider>text</Divider>')).toEqual(['children_not_allowed']);
+  });
+
+  it('treats a component that takes no children as self-closing, so it cannot swallow what follows', () => {
+    // Both benchmark models wrote <Divider> without the slash and lost the rest of the answer before this rule.
+    const r = compile('<Divider>\n## After\n<Slider min={1} max={9} value={1} onChange={(v) => v}>\nmore', { catalog });
+    expect(r.diagnostics.map((d) => d.code)).toEqual(['missing_self_close', 'missing_self_close']);
+    expect(render(r).tree.map((n) => (n as { type: string }).type)).toEqual(['Divider', 'Title', 'Slider', 'Text']);
+    const paired = compile('<Divider>text</Divider>', { catalog });
+    expect(paired.diagnostics.map((d) => d.code)).toEqual(['missing_self_close']);
+    expect(text(render(paired).tree)).toBe('text');
+  });
+});
+
+describe('compile: raw HTML', () => {
+  it('drops HTML controls instead of showing them as markup', () => {
+    // A benchmark answer wrote <input type="number" …> twice; before this rule it reached the screen as text.
+    const r = compile('Temperature\n<input type="number" value={25} onInput={(e) => e}>\n<img src="x.png">\nafter', { catalog });
+    expect(r.diagnostics.map((d) => d.code)).toEqual(['unknown_component', 'unknown_component']);
+    expect(text(render(r).tree)).toBe('Temperatureafter');
+  });
+
+  it('unwraps HTML containers so their content survives', () => {
+    const r = compile('<div class="card">\n## Inside\n<span>kept</span> text\n</div>', { catalog });
+    expect(r.diagnostics.map((d) => d.code)).toEqual(['unknown_component', 'unknown_component']);
+    expect(render(r).tree.map((n) => (n as { type: string }).type)).toEqual(['Title', 'Text']);
+    expect(text(render(r).tree)).toBe('Insidekept text');
+  });
+
+  it('leaves comparisons and unknown lowercase words as text', () => {
+    expect(text(render(compile('x <y and a<b, 3 < 4, <tag>', { catalog })).tree)).toBe('x <y and a<b, 3 < 4, <tag>');
   });
 });
 
@@ -114,6 +143,15 @@ describe('compile: expression guard', () => {
     const program = compile(src, { catalog });
     expect(program.diagnostics).toEqual([]);
     expect(text(render(program).tree)).toBe('1. A2. B3');
+  });
+
+  it('hoists directives nested only in elements, but not out of blocks', () => {
+    // A benchmark answer wrapped everything, directives included, in one <Box> and lost every name.
+    const r = compile('<Box gap={2}>\n{@state n = 2}\n{@let twice = n * 2}\n<Box>\n{twice}\n</Box>\n</Box>', { catalog });
+    expect(r.diagnostics.map((d) => d.code)).toEqual(['directive_hoisted', 'directive_hoisted']);
+    expect(text(render(r).tree)).toBe('4');
+    expect(codes('{#if true}\n{@state n = 1}\n{/if}')).toEqual(['directive_not_top_level']);
+    expect(codes('<Box>\n{#each [1] as x}\n{@let y = x}\n{/each}\n</Box>')).toEqual(['directive_not_top_level']);
   });
 
   it('reserves names and rejects duplicates', () => {

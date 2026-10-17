@@ -44,9 +44,38 @@ const BULLET = /^[-*]\s+/;
 const ORDERED = /^\d+[.)]\s+/;
 const HEADING_SIZE = ['xl', 'lg', 'md'] as const;
 
+/** HTML that means nothing without a browser element of its own; everything else HTML is unwrapped to its content. */
+const HTML_DROPPED = new Set(['audio', 'br', 'button', 'canvas', 'hr', 'iframe', 'img', 'input', 'meter', 'option', 'progress', 'select', 'style', 'svg', 'textarea', 'video']);
+
 /** Root content is block content. */
 export function toUI(nodes: readonly Node[], catalog: Catalog, diags: Diagnostics): UINode[] {
-  return blockContent(nodes, { catalog, diags });
+  return blockContent(unwrapHtml(nodes, diags), { catalog, diags });
+}
+
+/**
+ * Raw HTML the model wrote (the tokenizer reads known element names as tags). Containers such as <div>, <span> and
+ * <b> give way to their content, so no text is lost; the rest is left for `element` to drop as unknown.
+ */
+function unwrapHtml(nodes: readonly Node[], diags: Diagnostics): Node[] {
+  const out: Node[] = [];
+  for (const n of nodes) {
+    if (n.kind === 'element') {
+      const children = unwrapHtml(n.children, diags);
+      if (/^[a-z]/.test(n.name) && !HTML_DROPPED.has(n.name)) {
+        diags.error('unknown_component', `<${n.name}> is HTML; only catalog components can be used, so the tag was dropped and its content kept`, n.pos);
+        out.push(...children);
+      } else {
+        out.push({ ...n, children });
+      }
+    } else if (n.kind === 'if') {
+      out.push({ ...n, branches: n.branches.map((b) => ({ ...b, children: unwrapHtml(b.children, diags) })) });
+    } else if (n.kind === 'each') {
+      out.push({ ...n, children: unwrapHtml(n.children, diags) });
+    } else {
+      out.push(n);
+    }
+  }
+  return out;
 }
 
 type Item = { type: 'line'; atoms: Node[] } | { type: 'block'; node: Node };
@@ -155,7 +184,12 @@ function blockNode(node: Node, ctx: Ctx): UINode | null {
 function element(node: ElementNode, ctx: Ctx): UIElement | null {
   const spec = ctx.catalog.get(node.name);
   if (!spec) {
-    ctx.diags.error('unknown_component', `<${node.name}> is not in the catalog and was dropped`, node.pos);
+    const html = /^[a-z]/.test(node.name);
+    ctx.diags.error(
+      'unknown_component',
+      html ? `<${node.name}> is HTML; only catalog components can be used, so it was dropped` : `<${node.name}> is not in the catalog and was dropped`,
+      node.pos,
+    );
     return null;
   }
   let children: UINode[] = [];

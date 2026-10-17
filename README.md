@@ -4,7 +4,7 @@
 
 思路参考了第三方对 ChatGPT Intelligent UI 的公开分析，是按公开描述做的独立实现：没有使用 ChatGPT 的任何代码，语言语法也是自己定义的。Tessera 是暂用的名字。
 
-> 当前进度：M1–M4 已完成，即非流式闭环、流式编译 + SSE 补丁、隔离加固、数据与传输。M4 包括工具数据按 ID 绑定、服务端解析组件、Markdown 降级版和代码差量传输。提示词评测见文末路线图。
+> 当前进度：M1–M5 已完成，即非流式闭环、流式编译 + SSE 补丁、隔离加固、数据与传输、真实模型评测。在 15 个基准提示上，deepseek-flash 一次通过 14/15；doubao-seed-2.1-pro 关思考时 14/15，开思考时 15/15。剩下的偶发错误经过一轮反馈都修好了。详见“评测（M5）”。
 
 ## 一条回复的旅程
 
@@ -41,6 +41,7 @@ SSE：event: patch  data: {seq, kind, ops}  ← 代码只发变化的那一段�
 | `@tessera/stream` | 补丁协议（含 `append` / `splice`）、`applyOps`、SSE 编解码、`readTesseraStream`；`@tessera/stream/server` 是流式编译器和 SSE 输出（工具数据、解析器、降级版） | 主入口任意环境；`/server` 在服务器 |
 | `@tessera/runtime` | 沙箱运行时。主入口只导出类型；`./worker` 是 Worker 入口源码，`./sandbox-worker.js` 是预构建的单文件版本（给 iframe 用） | Web Worker |
 | `@tessera/react` | `<TesseraView>`；沙箱工厂 `iframeSandbox` / `workerSandbox`；`SandboxController`（看门狗）；`useTesseraStream()` | 宿主页面（React ≥ 18） |
+| `eval` | 基准提示（`cases.mjs`）和 SES 回放 Worker；运行器是 `scripts/eval.mjs` | Node |
 | `demo` | 演示页：可编辑源码、实时编译、流式播放（开发服务器里自带一个假模型 + SSE 接口）、诊断、编译结果、系统提示词、动作日志 | 浏览器 |
 
 ## 语言
@@ -183,6 +184,62 @@ systemPrompt(catalog, { data: { p1: product1, p2: product2 } });
 
 **受控输入要保留本地副本。** 回调要先进沙箱、再把新值发回来，中间有一次往返。普通受控 input 在这段时间里会被 React 拉回旧值，所以演示里的 Slider、Checkbox 都先更新本地 state，再等 props 同步（见 `demo/src/components.tsx`）。
 
+## 评测（M5）
+
+`npm run eval` 用真实模型跑 15 个基准提示（`eval/cases.mjs`）。其中 13 个应该出界面：计算器、清单、对比、带图介绍、小测验等，有 3 个带工具数据。另外 2 个是纯问答，不应该出组件。每条回答走和线上一样的流程：
+
+- **流式请求**：OpenAI 兼容的 Chat Completions。边收边用 `createStreamCompiler` 编译，记录首 token、首屏（第一次有东西可画）、首个可交互组件、总耗时和 token 数。
+- **真跑一遍**：编译后在 `worker_threads` 里用 SES 执行程序，并触发每一个事件回调（滑块拉到最大、勾选、点击），收集运行时错误。
+- **检查项**：
+  - 没有错误级诊断
+  - 能渲染，没有运行时问题
+  - 没有包在代码块里
+  - 该出界面时出界面，纯问题不出组件
+  - 用了预期的组件
+  - 降级版里有预期的文字
+  - 工具数据的值没有被模型重抄
+- **`--repair`**：失败的回答把 `feedbackForModel()` 发回模型，让它改一次，统计修好的比例。
+- **`--regrade <结果目录>`**：不调用模型，用当前代码重新评已保存的回答，单独衡量编译器改动的效果。
+
+```bash
+# key 只从 --key-env 指定的环境变量里读，不会打印，也不会写进报告
+npm run eval -- --base-url https://api.deepseek.com --model deepseek-flash --key-env DEEPSEEK_API_KEY --repair
+npm run eval -- --base-url https://ark.cn-beijing.volces.com/api/v3 --model doubao-seed-2-1-pro-260915 \
+  --key-env MOOD_ARK_API_KEY --repair --extra '{"thinking":{"type":"disabled"}}'
+```
+
+报告写在 `eval/results/<label>/<时间>/`，包括 `report.md`、`report.json` 和每条回答的原文。这个目录不进 git。其他选项：
+- `--only`：只跑指定的几条
+- `--concurrency`：并发数，默认 3
+- `--timeout`：单次请求超时，默认 300 秒
+- `--extra`：合并进请求体的 JSON
+- `--prompt-extra`：追加到系统提示词末尾
+
+实测结果（并发 3，墙钟时间取中位数）：
+
+| 模型 | 修正前 | M5 之后 | 首屏 | 首个可交互组件 | 总耗时 | 总 token | 修复轮 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| deepseek-flash | 13/15 | 14/15 | 3.9 秒 | 6.6 秒 | 7.0 秒 | 43.9k | 1/1 修好 |
+| doubao-seed-2.1-pro（关思考） | — | 14/15 | 1.8 秒 | 5.0 秒 | 10.0 秒 | 26.8k | 1/1 修好 |
+| doubao-seed-2.1-pro（开思考） | 13/14，另 1 条超时 | 15/15 | 28.9 秒 | 37.0 秒 | 37.2 秒 | 48.8k | 不需要 |
+
+- 所有运行里，“UI 还是纯文本”的判断全部正确，渲染和触发回调都没有出过运行时错误，也没有模型把回答包进代码块。
+- 首屏几乎都在第 2、3 个字符到达时出现：流式编译器一收到标题就开始画。
+- 修正之后，每次运行最多剩 1 条失败，而且每次是不同的偶发错误：用了没声明的名字、把草稿和自己的规划文字一起输出、在公式里写了字面量的 `{年数}`。这些都在一轮反馈后修好。
+
+评测发现的问题，以及怎么改的：
+
+| 发现 | 改动 |
+| --- | --- |
+| 两个模型都会把 `<Divider>` 写成不带 `/` 的形式，后面的内容全被它“吞掉”（deepseek 的测验、doubao 的温度换算因此丢了滑块） | 编译器：不带子元素的组件一律自闭合（`missing_self_close`）；提示词里写明 |
+| deepseek 把整个回答连同 `{@state}` / `{@let}` 一起包进 `<Box>`，所有名字都被丢弃，测验点不动 | 编译器：只嵌在元素里的声明提到顶层（`directive_hoisted`）；提示词里写明 |
+| doubao（关思考）会写原生 HTML：`<input type="number">`、`<div style={{width…}}>` 画条形图。旧编译器把小写标签当成文字，界面上会直接露出标记，而且旧检查发现不了 | 编译器：已知的 HTML 元素名按标签解析，输入类元素丢弃，容器类元素拆掉、保留内容，都报 `unknown_component`；提示词里写明不能用 HTML 和 style |
+| doubao 想画进度条和对比条时没有合适的组件，就借用 `<Slider disabled>` 或 `<Box style>` | 目录：新增只读的 `<Progress value max label tone>`；之后的运行里，打卡表和复利对比都直接用上了它 |
+| deepseek 在总结句里把工具数据里的店名、价格重新打了一遍 | 提示词：句子里也只能写引用（`{cheapest.title}`），需要的值用 `@let` 推出来。之后“工具值没被重抄”这一项是 3/3 |
+| doubao 开思考时，首屏要等 30 秒左右，复利那条在 180 秒的超时内没写完 | 超时改为可配置，默认 300 秒。界面类回答用关思考的效果差不多，首屏快一个数量级 |
+
+只算编译器改动的效果（用 `--regrade` 重评修正前保存的回答）：deepseek 从 13/15 到 14/15，doubao 从 13/14 到 14/14。剩下那条是重抄工具值，只能靠提示词解决。
+
 ## 安全模型
 
 | 层 | 做什么 | 状态 |
@@ -233,6 +290,8 @@ systemPrompt(catalog, { data: { p1: product1, p2: product2 } });
 - **状态镜像只包含 JSON 安全的值**，而且只在一次重绘成功之后才发给宿主。所以宿主手里的永远是“画得出来”的状态，重启后恢复它不会马上再次卡死。
 - **重建沙箱的那半秒左右，屏幕停在上一帧，这时的点击会被丢弃**（旧沙箱已经没了）。新沙箱画完后界面才换成新的。
 - **演示里的“找图”是本地生成的占位图**（`demo/src/resolvers.ts`），按描述生成一张带文字的 SVG，并模拟 400 毫秒的搜索延迟，不调用任何外部或付费服务。换成真实的图片搜索时，只要返回同样的 `{ url, title, source }` 结构。宿主的 Image 组件只画 `https:` 图片和栅格 / SVG 的 data URL（SVG 放在 `<img>` 里不能执行脚本）。
+- **不带子元素的组件一律按自闭合处理。** `<Divider>`、`<Slider …>` 漏写了 `/`，就当作 `<Divider />`，报 `missing_self_close` 警告；配对的 `</Divider>` 直接忽略。像 HTML 的 void 元素那样，它们不会“吞掉”后面的内容。两个评测模型都犯过这个错，修之前会丢掉整段回答。
+- **只嵌在元素里的 `{@state}` / `{@let}` 会提到顶层**，报 `directive_hoisted` 警告。元素不引入作用域，所以意思不变。模型常把整个回答包进一个 `<Box>`，连声明一起。放在 `{#if}` / `{#each}` 里的仍然算错误，因为提上来意思就变了。
 - **降级版的解释器只覆盖纯表达式的常用子集**：算术、比较、模板字符串、成员访问、`Math.*`、字符串和数组方法（含 `map` / `filter` / `reduce` 等回调）。超出范围的部分显示 `…`，不会报错。
 - **体积**（演示构建，gzip 后）：沙箱 Worker 约 50 KB（SES + Preact + remote-dom + threads），只在第一次启动时下载一次。主包约 142 KB，含 React、zod 和 acorn；如果只在服务端编译，acorn 可以不进浏览器。
 
@@ -245,9 +304,10 @@ npm run build:sandbox # 重新构建预构建的沙箱 Worker
 npm run check        # 类型检查 + 单元测试 + SES 沙箱测试
 npm run e2e          # 用本机 Chrome 跑端到端检查（CHROME_PATH 可覆盖路径）：
                      #   阶段 1 生产构建：M1 交互闭环 + M3 隔离与看门狗；阶段 2 开发服务器：M2 流式
+npm run eval -- …    # 用真实模型跑基准提示（见“评测（M5）”）
 ```
 
-当前结果：类型检查通过；单元测试 87 项、SES 沙箱测试 8 项、端到端检查 26 项全部通过（连续 2 次）。端到端截图在 `.e2e/demo.png`。
+当前结果：类型检查通过；单元测试 92 项、SES 沙箱测试 8 项、端到端检查 26 项全部通过。端到端截图在 `.e2e/demo.png`。
 
 M4 相关的关键检查：
 - 商品对比里的价格来自 data 表，编译结果里没有价格。
@@ -277,4 +337,5 @@ M3 相关的关键检查：
 | **M2** ✅ | 流式：服务端前缀重编译 + SSE 补丁（structure / constants / text / final）；稳定根组件、工厂缓存、合并更新、出错保留上一帧；`useTesseraStream()` |
 | **M3** ✅ | 隔离加固：不透明源 iframe + CSP、看门狗（渲染超时、心跳、隔离、重建、重启上限）、状态镜像（重启恢复、刷新保留）、`feedbackForModel()` |
 | **M4** ✅ | 数据与传输：工具结果按 ID 绑定（模型只写引用，字段校验）、服务端解析组件（`<Image query>` + `resolveAll` / 流式 `data` 批次）、会求值的 Markdown 降级版、代码 `splice` 差量传输 |
-| M5 | 提示词与评测：一组基准提示，接真实模型跑，统计解析成功率、诊断数、首屏 token 数；可选的独立域名 runner 页面 |
+| **M5** ✅ | 提示词与评测：15 个基准提示 + `npm run eval`（流式计时、SES 回放并触发回调、检查项、反馈修复轮、`--regrade`）；按结果修了编译器（void 组件自闭合、声明提升、原生 HTML 处理）、提示词和目录（`Progress`） |
+| 之后 | 可选：独立域名的 runner 页面；更多模型和更大的基准集 |

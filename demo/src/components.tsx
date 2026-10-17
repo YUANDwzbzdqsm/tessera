@@ -104,6 +104,18 @@ function Badge({ tone = 'neutral', children }: Kids & { tone?: string }) {
   return <span className={`t-badge t-badge-${tone}`}>{children}</span>;
 }
 
+function Progress({ value, max = 100, label, tone = 'info' }: { value: number; max?: number; label?: string; tone?: string }) {
+  const share = max > 0 && Number.isFinite(value) ? Math.min(1, Math.max(0, value / max)) : 0;
+  return (
+    <div className="t-progress">
+      {label ? <span className="t-slider-label">{label}</span> : null}
+      <div className="t-progress-track" role="progressbar" aria-valuenow={value} aria-valuemin={0} aria-valuemax={max}>
+        <div className={`t-progress-fill t-progress-${tone}`} style={{ width: `${share * 100}%` }} />
+      </div>
+    </div>
+  );
+}
+
 /**
  * Shows what the server found for the query. The URL comes from the resolver, never from the model, but the host
  * still only draws https images and raster or SVG data URLs (an SVG in <img> cannot run scripts).
@@ -137,6 +149,7 @@ export const components: TesseraComponents = {
   Button,
   Caption: ({ children }: Kids) => <div className="t-caption">{children}</div>,
   Badge,
+  Progress,
   Divider: () => <hr className="t-divider" />,
   Image,
 };
