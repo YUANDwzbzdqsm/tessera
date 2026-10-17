@@ -76,7 +76,9 @@ function RemoteElement({ node, ctx }: { node: RemoteReceiverElement; ctx: TreeCo
     }
     for (const prop of spec.events) {
       const listener = current.eventListeners[eventNameFor(prop)];
-      if (listener) props[prop] = (value: unknown) => listener(value);
+      // The call crosses into the sandbox. If the watchdog replaces a stuck sandbox, the pending call is
+      // rejected; there is nothing to recover, so it must not surface as an unhandled rejection.
+      if (listener) props[prop] = (value: unknown) => void Promise.resolve(listener(value)).catch(() => undefined);
     }
     const children = spec.children === 'none' ? undefined : <RemoteChildren parent={current} ctx={ctx} />;
     const Component = ctx.components[spec.name];

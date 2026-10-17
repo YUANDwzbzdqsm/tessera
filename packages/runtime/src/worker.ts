@@ -1,10 +1,10 @@
 /// <reference lib="webworker" />
-// Worker entry. Import it from a module worker file in your app: `import '@tessera/runtime/worker';`
+// Worker entry, also the source of the prebuilt bundle `@tessera/runtime/sandbox-worker.js` that the iframe sandbox runs.
 // Order matters: the DOM polyfill and every library load first, then lockdown() freezes the intrinsics.
 import '@remote-dom/core/polyfill';
 import 'ses';
-import { ThreadWebWorker } from '@quilted/threads';
-import type { RuntimeApi } from './protocol';
+import { ThreadMessagePort } from '@quilted/threads';
+import type { PortHandoff, RuntimeApi } from './protocol';
 import { createRuntime } from './runtime';
 
 lockdown({
@@ -18,4 +18,13 @@ lockdown({
   overrideTaming: 'severe',
 });
 
-ThreadWebWorker.export<RuntimeApi>(self as unknown as Worker, createRuntime());
+// The host (directly, or through the sandbox iframe) hands over one MessagePort and talks only through it.
+// Anything else posted to the worker is ignored, and only the first handoff is accepted.
+const onMessage = (event: MessageEvent) => {
+  const data = event.data as Partial<PortHandoff> | null;
+  if (data?.type !== 'tessera:port' || !(data.port instanceof MessagePort)) return;
+  self.removeEventListener('message', onMessage);
+  ThreadMessagePort.export<RuntimeApi>(data.port, createRuntime());
+  data.port.start();
+};
+self.addEventListener('message', onMessage);

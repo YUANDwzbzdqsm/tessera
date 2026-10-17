@@ -1,16 +1,39 @@
-import { compile, systemPrompt } from '@tessera/lang';
-import { TesseraView, useTesseraStream, type TesseraIssue } from '@tessera/react';
+import { compile, feedbackForModel, systemPrompt, type FeedbackIssue } from '@tessera/lang';
+import { TesseraView, iframeSandbox, useTesseraStream, workerSandbox, type TesseraIssue } from '@tessera/react';
 import type { Action } from '@tessera/runtime';
+import sandboxWorkerUrl from '@tessera/runtime/sandbox-worker.js?url';
 import type { UpdateKind } from '@tessera/stream';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { catalog } from './catalog';
 import { components } from './components';
 import { samples } from './samples';
 
-// Module-level so its identity is stable: a new function would restart the sandbox.
-const createWorker = () => new Worker(new URL('./tessera.worker.ts', import.meta.url), { type: 'module', name: 'tessera-sandbox' });
+// Module-level so its identity is stable: a new factory would restart the sandbox.
+// Default: worker inside an opaque-origin iframe. `?isolation=worker` runs a plain worker on this origin instead.
+const ISOLATION = new URLSearchParams(location.search).get('isolation') === 'worker' ? 'worker' : 'iframe';
+const sandbox =
+  ISOLATION === 'worker'
+    ? workerSandbox(() => new Worker(new URL('./tessera.worker.ts', import.meta.url), { type: 'module', name: 'tessera-sandbox' }))
+    : iframeSandbox({ workerUrl: sandboxWorkerUrl });
 
-type Tab = 'diagnostics' | 'code' | 'prompt';
+// The interface state survives a reload: TesseraView reports it, the page stores it, and seeds the next sandbox with it.
+const STATE_KEY = 'tessera-demo-state';
+function loadState(): Record<string, unknown> {
+  try {
+    return JSON.parse(localStorage.getItem(STATE_KEY) ?? '{}') as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+function saveState(state: Readonly<Record<string, unknown>>) {
+  try {
+    localStorage.setItem(STATE_KEY, JSON.stringify(state));
+  } catch {
+    // Storage unavailable: the state just won't survive a reload.
+  }
+}
+
+type Tab = 'diagnostics' | 'code' | 'feedback' | 'prompt';
 
 interface LogEntry {
   readonly id: number;
@@ -43,6 +66,9 @@ export function App() {
   const [tab, setTab] = useState<Tab>('diagnostics');
   const [log, setLog] = useState<LogEntry[]>([]);
   const [sends, setSends] = useState(0);
+  const [savedState] = useState(loadState);
+  const [uiState, setUiState] = useState<Readonly<Record<string, unknown>>>(savedState);
+  const [runtimeIssues, setRuntimeIssues] = useState<FeedbackIssue[]>([]);
 
   const stream = useTesseraStream();
   const streaming = stream.status === 'streaming';
@@ -89,8 +115,14 @@ export function App() {
   };
   const onIssue = (i: TesseraIssue) => {
     push('issue', `[${i.source}] ${i.code}: ${i.message}`);
+    if (i.source === 'runtime') setRuntimeIssues((list) => [...list, { code: i.code, message: i.message }].slice(-20));
     if ('stack' in i && i.stack) console.debug(i.stack);
   };
+  const onStateChange = (state: Readonly<Record<string, unknown>>) => {
+    setUiState(state);
+    saveState(state);
+  };
+  const feedback = feedbackForModel(shown.diagnostics, { runtimeIssues, state: uiState });
 
   const { stats } = stream;
   const kb = (n: number) => (n / 1024).toFixed(1);
@@ -186,9 +218,9 @@ export function App() {
             onChange={(e) => setSource(e.currentTarget.value)}
           />
           <div className="tabs" role="tablist">
-            {(['diagnostics', 'code', 'prompt'] as const).map((t) => (
+            {(['diagnostics', 'code', 'feedback', 'prompt'] as const).map((t) => (
               <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
-                {t === 'diagnostics' ? `诊断 ${shown.diagnostics.length}` : t === 'code' ? '编译结果' : '系统提示词'}
+                {t === 'diagnostics' ? `诊断 ${shown.diagnostics.length}` : t === 'code' ? '编译结果' : t === 'feedback' ? '给模型的反馈' : '系统提示词'}
               </button>
             ))}
           </div>
@@ -209,6 +241,11 @@ export function App() {
               {JSON.stringify(shown.constants, null, 2)}
             </pre>
           )}
+          {tab === 'feedback' && (
+            <pre className="code" data-testid="feedback">
+              {feedback ?? '（没有需要告诉模型的：源码完整、运行正常、也没有界面状态。）'}
+            </pre>
+          )}
           {tab === 'prompt' && <pre className="code">{systemPrompt(catalog)}</pre>}
         </section>
 
@@ -220,11 +257,21 @@ export function App() {
               program={program}
               catalog={catalog}
               components={components}
-              createWorker={createWorker}
+              sandbox={sandbox}
+              initialState={viewKey === 0 ? savedState : undefined}
+              onStateChange={onStateChange}
               onAction={onAction}
               onIssue={onIssue}
               fallback={<p className="muted">正在启动沙箱…</p>}
             />
+          </div>
+          <div className="counters">
+            <span className="muted">
+              隔离方式：<b data-testid="isolation">{ISOLATION === 'iframe' ? '不透明源 iframe + Worker' : '仅 Worker'}</b>
+            </span>
+            <span className="muted">
+              界面状态（刷新后保留）：<code data-testid="ui-state">{JSON.stringify(uiState)}</code>
+            </span>
           </div>
           <div className="counters">
             <span>

@@ -26,6 +26,7 @@ export function createRuntime(): RuntimeApi {
   let renderProgram: (() => unknown) | null = null;
   let lastOutput: unknown = null;
   let scheduled = false;
+  let reportedState = '{}';
 
   const report = (issue: RuntimeIssue) => {
     const key = issue.code + issue.message;
@@ -52,7 +53,26 @@ export function createRuntime(): RuntimeApi {
       render(createElement(Host, null), root);
     } catch (e) {
       report({ code: 'render_error', message: errorMessage(e), stack: (e as Error)?.stack });
+      return;
     }
+    reportState();
+  };
+
+  /** Mirrors JSON-safe state to the host after a paint completed, only when it changed. */
+  const reportState = () => {
+    const snapshot: Record<string, unknown> = {};
+    for (const [key, value] of store) {
+      try {
+        const json = JSON.stringify(value);
+        if (json !== undefined) snapshot[key] = JSON.parse(json);
+      } catch {
+        // Not JSON-safe (cyclic, BigInt): kept in the sandbox only.
+      }
+    }
+    const serialised = JSON.stringify(snapshot);
+    if (serialised === reportedState) return;
+    reportedState = serialised;
+    host?.state(snapshot);
   };
   const schedule = () => {
     if (scheduled) return;
@@ -106,8 +126,10 @@ export function createRuntime(): RuntimeApi {
   };
 
   return {
-    async mount(connection: RemoteConnection, wires: readonly ComponentWire[], callbacks: HostCallbacks) {
+    async mount(connection: RemoteConnection, wires: readonly ComponentWire[], callbacks: HostCallbacks, initialState?: Readonly<Record<string, unknown>>) {
       host = callbacks;
+      for (const [key, value] of Object.entries(initialState ?? {})) store.set(key, value);
+      reportedState = JSON.stringify(initialState ?? {});
       for (const wire of wires) {
         components.set(wire.name, wire);
         if (customElements.get(wire.tag)) continue;
@@ -149,6 +171,10 @@ export function createRuntime(): RuntimeApi {
       }
       paint();
       return { ok: true };
+    },
+
+    async ping() {
+      return 'pong';
     },
   };
 }

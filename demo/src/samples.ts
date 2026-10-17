@@ -38,6 +38,20 @@ export const samples: readonly Sample[] = [
 {/if}`,
   },
   {
+    id: 'hang',
+    label: '卡死的程序',
+    source: `## 卡死的程序会怎样
+沙箱停止响应时，看门狗会把它整个换掉，并恢复上一次正常渲染时的状态。
+{@state count = 0}
+<Box border padding={3} gap={2}>
+<Title size="xl">点了 {count} 次</Title>
+<Box direction="row" gap={2}>
+<Button onClick={() => setCount(count + 1)}>正常加一</Button>
+<Button variant="outline" onClick={() => setCount(Array.from({ length: 100000 }).reduce((sum) => sum + Array.from({ length: 100000 }).length, 0))}>跑一个停不下来的计算</Button>
+</Box>
+</Box>`,
+  },
+  {
     id: 'broken',
     label: '出错的写法',
     source: `## 编译器会怎么处理这些错误

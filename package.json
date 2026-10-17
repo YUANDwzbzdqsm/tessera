@@ -7,8 +7,9 @@
     "demo"
   ],
   "scripts": {
-    "dev": "npm run dev -w @tessera/demo",
-    "build": "npm run build -w @tessera/demo",
+    "build:sandbox": "node scripts/build-sandbox.mjs",
+    "dev": "npm run build:sandbox && npm run dev -w @tessera/demo",
+    "build": "npm run build:sandbox && npm run build -w @tessera/demo",
     "test": "vitest run",
     "test:sandbox": "vitest run -c vitest.sandbox.config.ts",
     "e2e": "node scripts/e2e.mjs",

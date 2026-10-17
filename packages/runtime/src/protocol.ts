@@ -26,6 +26,11 @@ export interface RuntimeIssue {
 export interface HostCallbacks {
   action(action: Action): void;
   issue(issue: RuntimeIssue): void;
+  /**
+   * The keyed state, JSON-safe values only, sent after each repaint that changed it. Because it is sent only
+   * after a paint completed, it is always a state that rendered fine: the host can restore it after a restart.
+   */
+  state(snapshot: Readonly<Record<string, unknown>>): void;
 }
 
 export interface RenderResult {
@@ -35,7 +40,21 @@ export interface RenderResult {
 
 /** What the sandbox worker exposes to the host. */
 export interface RuntimeApi {
-  mount(connection: RemoteConnection, components: readonly ComponentWire[], host: HostCallbacks): Promise<void>;
+  /** `initialState` seeds the keyed state, e.g. what the host saved before a restart or a page reload. */
+  mount(
+    connection: RemoteConnection,
+    components: readonly ComponentWire[],
+    host: HostCallbacks,
+    initialState?: Readonly<Record<string, unknown>>,
+  ): Promise<void>;
   /** Loads a program and renders it. State is keyed by name and survives across programs. */
   render(program: Program): Promise<RenderResult>;
+  /** Heartbeat for the host's watchdog. A busy or stuck worker cannot answer. */
+  ping(): Promise<'pong'>;
+}
+
+/** The message that hands the worker its MessagePort; all further traffic goes over that port. */
+export interface PortHandoff {
+  readonly type: 'tessera:port';
+  readonly port: MessagePort;
 }

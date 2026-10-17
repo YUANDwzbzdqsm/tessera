@@ -4,6 +4,7 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { chromium } from 'playwright-core';
 import { build, createServer, preview } from 'vite';
+import { buildSandbox } from './build-sandbox.mjs';
 
 const CHROME_CANDIDATES = [
   process.env.CHROME_PATH,
@@ -34,6 +35,17 @@ const expectText = async (locator, expected) => {
   if (actual !== expected) throw new Error(`expected "${expected}", got "${actual}"`);
 };
 const number = async (locator) => Number((await locator.innerText()).trim());
+const CSP_REPORT = /Content Security Policy|Refused to connect/;
+/** Runs a probe that triggers CSP violations on purpose, then drops those (and only those) console errors. */
+async function expectingCspErrors(errors, fn) {
+  const before = errors.length;
+  try {
+    return await fn();
+  } finally {
+    const added = errors.splice(before);
+    errors.push(...added.filter((e) => !CSP_REPORT.test(e)));
+  }
+}
 
 async function openPage(browser, url) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
@@ -48,6 +60,7 @@ const browser = await chromium.launch({ executablePath, headless: true });
 mkdirSync('.e2e', { recursive: true });
 
 // ---------- Phase 1: production build ----------
+await buildSandbox();
 await build({ root: 'demo', logLevel: 'warn' });
 const staticServer = await preview({ root: 'demo', preview: { port: 5181, strictPort: true }, logLevel: 'warn' });
 console.log(`phase 1: production build at ${staticServer.resolvedUrls.local[0]}`);
@@ -95,13 +108,116 @@ console.log(`phase 1: production build at ${staticServer.resolvedUrls.local[0]}`
     }
   });
 
+  await check('the feedback for the model lists what was dropped', async () => {
+    await page.getByRole('tab', { name: '给模型的反馈' }).click();
+    const text = await page.getByTestId('feedback').innerText();
+    for (const part of ['[Interface feedback]', '- unknown_component: <Rocket> is not in the catalog', '- forbidden_syntax:', 'The user left the interface in this state:']) {
+      if (!text.includes(part)) throw new Error(`missing "${part}"`);
+    }
+    if (/was dropped/.test(text)) throw new Error('boilerplate not stripped');
+    await page.getByRole('tab', { name: /诊断/ }).click();
+  });
+
   await check('normal flows report no host or runtime issues (props removed on switch are not sent as "")', async () => {
     // The flow above switched team -> checklist -> broken: Box lost padding/border, Title/Text were reused.
     const issues = (await page.getByTestId('log').innerText()).split('\n').filter((l) => /^\[(host|runtime)\]/.test(l.trim()));
     if (issues.length) throw new Error(issues.join(' | '));
   });
 
+  await check('programs run in an opaque-origin iframe that cannot read this page, its storage or the network', async () => {
+    const iframes = page.locator('iframe[data-tessera-sandbox]');
+    if ((await iframes.count()) !== 1) throw new Error(`expected 1 sandbox iframe, found ${await iframes.count()}`);
+    if ((await iframes.first().getAttribute('sandbox')) !== 'allow-scripts') throw new Error('iframe sandbox attribute changed');
+    const frame = page.frames().find((f) => f.url() === 'about:srcdoc');
+    if (!frame) throw new Error('sandbox frame not found');
+    const probe = await expectingCspErrors(errors, () => frame.evaluate(async () => {
+      const attempt = async (fn) => {
+        try {
+          return `allowed:${String(await fn())}`;
+        } catch (e) {
+          return `blocked:${e.name}`;
+        }
+      };
+      return {
+        origin: self.origin,
+        cookie: await attempt(() => document.cookie),
+        storage: await attempt(() => localStorage.length),
+        parent: await attempt(() => parent.document.title),
+        fetch: await attempt(() => fetch('/').then((r) => r.status)),
+      };
+    }));
+    const expected = { origin: 'null', cookie: 'blocked:SecurityError', storage: 'blocked:SecurityError', parent: 'blocked:SecurityError', fetch: 'blocked:TypeError' };
+    if (JSON.stringify(probe) !== JSON.stringify(expected)) throw new Error(JSON.stringify(probe));
+  });
+
+  await check('the sandbox worker itself cannot reach the network (it inherits the iframe CSP)', async () => {
+    const worker = page.workers().find((w) => w.url().startsWith('blob:null/'));
+    if (!worker) throw new Error('sandbox worker not visible to the test');
+    const target = staticServer.resolvedUrls.local[0];
+    const result = await expectingCspErrors(errors, () =>
+      worker.evaluate((url) => fetch(url).then((r) => `allowed:${r.status}`, (e) => `blocked:${e.name}`), target),
+    );
+    if (result !== 'blocked:TypeError') throw new Error(result);
+  });
+
+  // While a replacement sandbox starts, the last good frame stays on screen but is inert (its sandbox is gone).
+  // Interact only after the replacement has redrawn, i.e. once the old element is detached.
+  const waitReplaced = (handle) => page.waitForFunction((el) => !el.isConnected, handle, { timeout: 10_000 });
+
+  await check('a hang in an event handler: the watchdog replaces the sandbox and restores the last good state', async () => {
+    const plusOne = () => pane.getByRole('button', { name: '正常加一' });
+    await page.getByRole('button', { name: '卡死的程序' }).click();
+    await waitText(pane, '点了 0 次');
+    await plusOne().click();
+    await plusOne().click();
+    await waitText(pane, '点了 2 次');
+    const stale = await plusOne().elementHandle();
+    await pane.getByRole('button', { name: '跑一个停不下来的计算' }).click();
+    await waitText(page.getByTestId('log'), 'sandbox_restarted', 15_000);
+    await waitReplaced(stale);
+    await waitText(pane, '点了 2 次');
+    await plusOne().click();
+    await waitText(pane, '点了 3 次');
+    if ((await page.locator('iframe[data-tessera-sandbox]').count()) !== 1) throw new Error('old sandbox iframe was not removed');
+  });
+
+  await check('a hang while rendering: the program is quarantined and the last good frame stays', async () => {
+    await page.getByRole('button', { name: '团队估价' }).click();
+    await waitText(pane, '美元/月');
+    const stale = await pane.locator('input[type=range]').elementHandle();
+    const source = page.getByTestId('source');
+    const boom = '\n{@let boom = Array.from({ length: 100000 }).reduce((sum) => sum + Array.from({ length: 100000 }).length, 0)}';
+    await source.fill((await source.inputValue()) + boom);
+    await waitText(page.getByTestId('log'), 'that program is quarantined', 15_000);
+    await waitReplaced(stale);
+    await waitText(pane, '美元/月');
+    await pane.locator('input[type=range]').focus();
+    await page.keyboard.press('ArrowRight');
+    await waitText(pane, '290 美元/月'); // seats 9 -> 10 in the redrawn last good program
+  });
+
+  await check('the interface state survives a page reload', async () => {
+    await page.reload();
+    await waitText(pane, '290 美元/月', 20_000);
+    const state = await page.getByTestId('ui-state').innerText();
+    if (!state.includes('"seats":10') || !state.includes('"count":3')) throw new Error(state);
+  });
+
   await check('no console errors (production build)', async () => {
+    if (errors.length) throw new Error(errors.join(' | '));
+  });
+  await page.close();
+}
+{
+  const { page, errors, preview: pane } = await openPage(browser, staticServer.resolvedUrls.local[0] + '?isolation=worker');
+  await check('plain-worker isolation also works (no iframe)', async () => {
+    // browser.newPage() opens a fresh context: no saved state, so the sample starts at 8 seats.
+    await expectText(page.getByTestId('isolation'), '仅 Worker');
+    await waitText(pane, '232 美元/月');
+    if ((await page.locator('iframe[data-tessera-sandbox]').count()) !== 0) throw new Error('unexpected sandbox iframe');
+    await pane.locator('input[type=range]').focus();
+    await page.keyboard.press('ArrowRight');
+    await waitText(pane, '261 美元/月');
     if (errors.length) throw new Error(errors.join(' | '));
   });
   await page.close();
