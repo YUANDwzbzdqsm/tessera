@@ -180,6 +180,7 @@ stream.start((signal) => fetch('/api/chat', { method: 'POST', body, signal }));
 ## 已知行为与坑
 
 - **SES 必须用 `overrideTaming: 'severe'`。** Preact 用 for-in 复制 vnode，而 vnode 自带一个 `constructor` 属性；复制到普通对象上时会撞上被冻结的 `Object.prototype.constructor`（SES 文档里叫 override mistake）。改成 `moderate` 时第一帧就会报错。
+- **元素的 props 作为一个对象过桥。** Worker 把每个元素声明过的 props 打包成一个 `props` 对象，作为唯一的远端属性传给宿主。不这样做的话，Preact 删除一个 prop 时会赋值 `''`，宿主收到的就是一个类型不对的值；Preact 还会把 `width`、`href` 这类名字当作字符串属性处理。结构相同的 props 复用同一个冻结对象，所以流式重编译时没变的元素不会产生更新。
 - **SES 2.3 不认识 Chrome 新加的 Iterator helpers**，会在控制台提示移除 `%IteratorPrototype%.join` / `includes`。这是预期行为，不影响程序。
 - **state 按名字存在 Worker 里，每个 `TesseraView` 一份。** 同一个视图换一段源码，同名 state 会保留：编辑源码时价格不归零就是靠这一点。聊天场景里每条消息各有一个视图，不会串。
 - **演示的流式接口只在 `npm run dev` 下可用。** 它是 Vite 开发服务器里的一个中间件，通过 `ssrLoadModule` 直接加载 TypeScript 源码；静态构建没有后端。真实应用里换成你自己的服务端路由，调用 `createSSEStream` 即可。
@@ -196,7 +197,7 @@ npm run e2e          # 用本机 Chrome 跑端到端检查（CHROME_PATH 可覆�
                      #   阶段 1 生产构建：M1 交互闭环；阶段 2 开发服务器：M2 流式
 ```
 
-当前结果：类型检查通过；单元测试 48 项、SES 沙箱测试 8 项、端到端检查 12 项全部通过。端到端截图在 `.e2e/demo.png`。
+当前结果：类型检查通过；单元测试 53 项、SES 沙箱测试 8 项、端到端检查 14 项全部通过。端到端截图在 `.e2e/demo.png`。
 
 流式相关的关键检查：
 - 客户端应用补丁后的文档，每一步都和服务端一致。

@@ -95,6 +95,12 @@ console.log(`phase 1: production build at ${staticServer.resolvedUrls.local[0]}`
     }
   });
 
+  await check('normal flows report no host or runtime issues (props removed on switch are not sent as "")', async () => {
+    // The flow above switched team -> checklist -> broken: Box lost padding/border, Title/Text were reused.
+    const issues = (await page.getByTestId('log').innerText()).split('\n').filter((l) => /^\[(host|runtime)\]/.test(l.trim()));
+    if (issues.length) throw new Error(issues.join(' | '));
+  });
+
   await check('no console errors (production build)', async () => {
     if (errors.length) throw new Error(errors.join(' | '));
   });
@@ -155,6 +161,11 @@ console.log(`phase 2: dev server with SSE endpoint at ${devUrl}`);
     await page.getByTestId('stream-dismiss').click();
     if ((await source.inputValue()) !== original) throw new Error('the original source was overwritten');
     await waitText(pane, '美元/月');
+  });
+
+  await check('streaming reports no host or runtime issues', async () => {
+    const issues = (await page.getByTestId('log').innerText()).split('\n').filter((l) => /^\[(host|runtime)\]/.test(l.trim()));
+    if (issues.length) throw new Error(issues.join(' | '));
   });
 
   await check('no console errors (streaming)', async () => {

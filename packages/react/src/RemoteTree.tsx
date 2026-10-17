@@ -65,8 +65,11 @@ function RemoteElement({ node, ctx }: { node: RemoteReceiverElement; ctx: TreeCo
   if (!spec) {
     issues.push({ source: 'host', code: 'unknown_element', message: `Element <${current.element}> is not in the catalog` });
   } else {
+    // The runtime sends all declared props as one `props` object; a prop that was removed is a missing key.
+    const raw = current.properties.props;
+    const incoming = raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
     const props: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(current.properties)) {
+    for (const [key, value] of Object.entries(incoming)) {
       const issue = ctx.catalog.checkProp(spec.name, key, value);
       if (issue) issues.push({ source: 'host', ...issue });
       else if (value !== undefined) props[key] = value;

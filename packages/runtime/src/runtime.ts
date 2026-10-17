@@ -3,6 +3,7 @@ import { BatchingRemoteConnection, RemoteRootElement, createRemoteElement } from
 import type { ComponentWire } from '@tessera/catalog';
 import { Fragment, h as createElement, isValidElement, render } from 'preact';
 import { createCompartment, createSafe, createUi, errorMessage, evaluateProgram, instantiate, type ProgramFactory } from './program';
+import { createPropsInterner } from './props';
 import type { HostCallbacks, Program, RenderResult, RuntimeApi, RuntimeIssue } from './protocol';
 
 /**
@@ -63,8 +64,12 @@ export function createRuntime(): RuntimeApi {
   };
 
   const ui = createUi({ store, safe, onChange: schedule, onAction: (a) => host?.action(a), isElement: isValidElement });
+  const intern = createPropsInterner();
 
-  /** The `h` a program calls: catalog name -> custom element, event props -> listeners that pass event.detail. */
+  /**
+   * The `h` a program calls: catalog name -> custom element whose declared props travel as one `props` object,
+   * and event props -> listeners that pass event.detail.
+   */
   const h = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => {
     if (type === Fragment) return createElement(Fragment, props, ...(children as []));
     const wire = typeof type === 'string' ? components.get(type) : undefined;
@@ -72,6 +77,7 @@ export function createRuntime(): RuntimeApi {
       report({ code: 'unknown_component', message: `Unknown component ${String(type)}` });
       return null;
     }
+    const data: Record<string, unknown> = {};
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(props ?? {})) {
       if (value === undefined) continue;
@@ -92,8 +98,10 @@ export function createRuntime(): RuntimeApi {
         }
         continue;
       }
-      if (wire.props.includes(key)) out[key] = value;
+      // Functions are never valid prop values (events are handled above); the host would reject them anyway.
+      if (wire.props.includes(key) && typeof value !== 'function') data[key] = value;
     }
+    out.props = intern(data);
     return createElement(wire.tag, out, ...(children as []));
   };
 
@@ -106,7 +114,7 @@ export function createRuntime(): RuntimeApi {
         customElements.define(
           wire.tag,
           createRemoteElement({
-            properties: Object.fromEntries(wire.props.map((p) => [p, { attribute: false }])),
+            properties: { props: { attribute: false } },
             events: wire.events.map((e) => e.event),
           }),
         );
