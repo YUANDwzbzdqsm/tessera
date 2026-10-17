@@ -1,4 +1,4 @@
-import { compile, feedbackForModel, systemPrompt, type FeedbackIssue } from '@tessera/lang';
+import { compile, feedbackForModel, resolveAll, systemPrompt, toFallbackMarkdown, type FeedbackIssue } from '@tessera/lang';
 import { TesseraView, iframeSandbox, useTesseraStream, workerSandbox, type TesseraIssue } from '@tessera/react';
 import type { Action } from '@tessera/runtime';
 import sandboxWorkerUrl from '@tessera/runtime/sandbox-worker.js?url';
@@ -6,6 +6,7 @@ import type { UpdateKind } from '@tessera/stream';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { catalog } from './catalog';
 import { components } from './components';
+import { resolvers } from './resolvers';
 import { samples } from './samples';
 
 // Module-level so its identity is stable: a new factory would restart the sandbox.
@@ -33,7 +34,7 @@ function saveState(state: Readonly<Record<string, unknown>>) {
   }
 }
 
-type Tab = 'diagnostics' | 'code' | 'feedback' | 'prompt';
+type Tab = 'diagnostics' | 'code' | 'fallback' | 'feedback' | 'prompt';
 
 interface LogEntry {
   readonly id: number;
@@ -53,6 +54,7 @@ const KIND_TEXT: Record<UpdateKind, string> = {
   structure: '结构变了：有组件、语句或代码块写完了，整段代码重发',
   constants: '只是文字变长：代码不变，只往常量表里追加文字',
   text: '写在半截里：模型正写到一个没完成的标签中间，界面不变',
+  data: '数据到了：工具结果或服务端解析的结果（比如找到的图片）',
   final: '流结束',
 };
 
@@ -62,7 +64,23 @@ export function App() {
   const [sampleId, setSampleId] = useState(samples[0]!.id);
   const [source, setSource] = useState(samples[0]!.source);
   const deferred = useDeferredValue(source);
-  const local = useMemo(() => compile(deferred, { catalog }), [deferred]);
+  // The tool results the current sample's answer may refer to, as a search tool would have returned them.
+  const sampleData = useMemo(() => samples.find((s) => s.id === sampleId)?.data ?? {}, [sampleId]);
+  const local = useMemo(() => compile(deferred, { catalog, data: sampleData }), [deferred, sampleData]);
+
+  // Local compiles resolve their images here; streamed answers get them from the server instead.
+  const [resolved, setResolved] = useState<Record<string, unknown>>({});
+  const inFlight = useRef(new Set<string>());
+  useEffect(() => {
+    const missing = local.resolutions.filter((r) => !(r.key in resolved) && !inFlight.current.has(r.key));
+    if (!missing.length) return;
+    for (const r of missing) inFlight.current.add(r.key);
+    void resolveAll(missing, resolvers).then((found) => {
+      for (const r of missing) inFlight.current.delete(r.key);
+      setResolved((prev) => ({ ...prev, ...found }));
+    });
+  }, [local.resolutions, resolved]);
+  const localData = useMemo(() => ({ ...sampleData, ...resolved }), [sampleData, resolved]);
   const [tab, setTab] = useState<Tab>('diagnostics');
   const [log, setLog] = useState<LogEntry[]>([]);
   const [sends, setSends] = useState(0);
@@ -80,9 +98,12 @@ export function App() {
 
   const shown =
     view === 'stream'
-      ? { text: stream.doc.text, code: stream.doc.code, constants: stream.doc.constants, diagnostics: stream.doc.diagnostics }
-      : { text: source, code: local.code, constants: local.constants, diagnostics: local.diagnostics };
-  const program = useMemo(() => ({ code: shown.code, constants: shown.constants }), [shown.code, shown.constants]);
+      ? { text: stream.doc.text, code: stream.doc.code, constants: stream.doc.constants, data: stream.doc.data, diagnostics: stream.doc.diagnostics }
+      : { text: source, code: local.code, constants: local.constants, data: localData, diagnostics: local.diagnostics };
+  const program = useMemo(
+    () => ({ code: shown.code, constants: shown.constants, data: shown.data }),
+    [shown.code, shown.constants, shown.data],
+  );
 
   // A completed stream hands its text to the editor (it compiles to the same program, so nothing flickers).
   // A stopped or failed one stays on screen as it was, without touching the editor's source.
@@ -98,7 +119,7 @@ export function App() {
   }, [streaming, shown.text]);
 
   const startStream = () => {
-    const body = JSON.stringify({ source, cps });
+    const body = JSON.stringify({ source, cps, data: sampleData });
     setViewKey((k) => k + 1); // fresh sandbox, fresh state
     setView('stream');
     void stream.start((signal) => fetch('/api/stream', { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal }));
@@ -123,6 +144,10 @@ export function App() {
     saveState(state);
   };
   const feedback = feedbackForModel(shown.diagnostics, { runtimeIssues, state: uiState });
+  const fallback = useMemo(
+    () => (tab === 'fallback' ? toFallbackMarkdown(shown.text, { catalog, data: shown.data, state: uiState }) : ''),
+    [tab, shown.text, shown.data, uiState],
+  );
 
   const { stats } = stream;
   const kb = (n: number) => (n / 1024).toFixed(1);
@@ -132,7 +157,7 @@ export function App() {
       <header className="top">
         <div>
           <h1>Tessera</h1>
-          <p>M2：模型流式输出 → 服务端反复编译 → SSE 补丁 → 沙箱 Worker → React</p>
+          <p>M4：工具数据按 ID 绑定 · 服务端解析组件 · Markdown 降级版 · 代码差量传输</p>
         </div>
         <nav className="samples" aria-label="示例">
           {samples.map((s) => (
@@ -195,7 +220,10 @@ export function App() {
             纯文本 <b data-testid="stat-text">{stats.byKind.text}</b>
           </span>
           <span>
-            共 <b>{kb(stats.bytes)}</b> KB，其中重发代码 <b>{stats.bytes ? Math.round((stats.codeBytes / stats.bytes) * 100) : 0}%</b>
+            数据 <b data-testid="stat-data">{stats.byKind.data}</b>
+          </span>
+          <span>
+            共 <b>{kb(stats.bytes)}</b> KB，其中代码 <b data-testid="stat-code-share">{stats.bytes ? Math.round((stats.codeBytes / stats.bytes) * 100) : 0}%</b>
           </span>
         </div>
         <p className="muted" data-testid="stream-last">
@@ -218,9 +246,9 @@ export function App() {
             onChange={(e) => setSource(e.currentTarget.value)}
           />
           <div className="tabs" role="tablist">
-            {(['diagnostics', 'code', 'feedback', 'prompt'] as const).map((t) => (
+            {(['diagnostics', 'code', 'fallback', 'feedback', 'prompt'] as const).map((t) => (
               <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
-                {t === 'diagnostics' ? `诊断 ${shown.diagnostics.length}` : t === 'code' ? '编译结果' : t === 'feedback' ? '给模型的反馈' : '系统提示词'}
+                {t === 'diagnostics' ? `诊断 ${shown.diagnostics.length}` : t === 'code' ? '编译结果' : t === 'fallback' ? 'Markdown 降级版' : t === 'feedback' ? '给模型的反馈' : '系统提示词'}
               </button>
             ))}
           </div>
@@ -241,12 +269,17 @@ export function App() {
               {JSON.stringify(shown.constants, null, 2)}
             </pre>
           )}
+          {tab === 'fallback' && (
+            <pre className="code" data-testid="fallback">
+              {fallback}
+            </pre>
+          )}
           {tab === 'feedback' && (
             <pre className="code" data-testid="feedback">
               {feedback ?? '（没有需要告诉模型的：源码完整、运行正常、也没有界面状态。）'}
             </pre>
           )}
-          {tab === 'prompt' && <pre className="code">{systemPrompt(catalog)}</pre>}
+          {tab === 'prompt' && <pre className="code">{systemPrompt(catalog, { data: sampleData })}</pre>}
         </section>
 
         <section className="pane">

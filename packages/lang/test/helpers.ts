@@ -37,7 +37,7 @@ export function render(program: CompiledProgram, state = new Map<string, unknown
     }
   };
   const factory = new Function(`return ${program.code}`)();
-  const Root = factory(h, FRAGMENT, ui, program.constants, safe);
+  const Root = factory(h, FRAGMENT, ui, program.constants, safe, program.data ?? {});
   const tree = Root() as FakeNode[];
   return { tree, state, sent, errors };
 }

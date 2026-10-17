@@ -4,7 +4,7 @@
 
 思路参考了第三方对 ChatGPT Intelligent UI 的公开分析，是按公开描述做的独立实现：没有使用 ChatGPT 的任何代码，语言语法也是自己定义的。Tessera 是暂用的名字。
 
-> 当前进度：**M1 非流式闭环**、**M2 流式编译 + SSE 补丁**、**M3 隔离加固（iframe + CSP、看门狗、状态镜像、给模型的反馈）**已完成。数据绑定等见文末路线图。
+> 当前进度：M1–M4 已完成，即非流式闭环、流式编译 + SSE 补丁、隔离加固、数据与传输。M4 包括工具数据按 ID 绑定、服务端解析组件、Markdown 降级版和代码差量传输。提示词评测见文末路线图。
 
 ## 一条回复的旅程
 
@@ -13,7 +13,8 @@
    │  @tessera/stream/server：每隔一段时间把已到达的全部前缀重新编译，只发变化的部分
    │  @tessera/lang：分词 → 建树（截断修补）→ Markdown 转组件 → 表达式守卫 → 代码生成
    ▼
-SSE：event: patch  data: {seq, kind, ops}  ← 结构变了才重发代码；文字变长只追加常量
+   │  工具结果按名字放进 data 表（模型只写 {p1.price}）；<Image query> 之类交给服务端解析器，结果补进 data
+SSE：event: patch  data: {seq, kind, ops}  ← 代码只发变化的那一段（splice）；文字变长只追加常量；结束时附上 Markdown 降级版
    │  @tessera/stream：浏览器端解析 SSE、应用补丁，得到 { text, code, constants, diagnostics, done }
    ▼
 { code, constants }                       ← 纯数据，可以随消息存储、跨 postMessage 传递
@@ -35,9 +36,9 @@ SSE：event: patch  data: {seq, kind, ops}  ← 结构变了才重发代码；�
 
 | 包 | 作用 | 运行在 |
 | --- | --- | --- |
-| `@tessera/catalog` | 组件目录：zod props 模式、事件、子内容类型；校验；生成提示词里的组件说明 | 任意环境 |
-| `@tessera/lang` | 编译器 `compile()`、表达式守卫、`systemPrompt()`、`feedbackForModel()` | 服务器或浏览器 |
-| `@tessera/stream` | 补丁协议、`applyOps`、SSE 编解码、`readTesseraStream`；`@tessera/stream/server` 是流式编译器和 SSE 输出 | 主入口任意环境；`/server` 在服务器 |
+| `@tessera/catalog` | 组件目录：zod props 模式、事件、子内容类型、服务端解析器（`resolver`）、降级渲染（`fallback`）；校验；生成提示词里的组件说明 | 任意环境 |
+| `@tessera/lang` | 编译器 `compile()`、表达式守卫、`systemPrompt()`、`feedbackForModel()`、`toFallbackMarkdown()`、`resolveAll()` | 服务器或浏览器 |
+| `@tessera/stream` | 补丁协议（含 `append` / `splice`）、`applyOps`、SSE 编解码、`readTesseraStream`；`@tessera/stream/server` 是流式编译器和 SSE 输出（工具数据、解析器、降级版） | 主入口任意环境；`/server` 在服务器 |
 | `@tessera/runtime` | 沙箱运行时。主入口只导出类型；`./worker` 是 Worker 入口源码，`./sandbox-worker.js` 是预构建的单文件版本（给 iframe 用） | Web Worker |
 | `@tessera/react` | `<TesseraView>`；沙箱工厂 `iframeSandbox` / `workerSandbox`；`SandboxController`（看门狗）；`useTesseraStream()` | 宿主页面（React ≥ 18） |
 | `demo` | 演示页：可编辑源码、实时编译、流式播放（开发服务器里自带一个假模型 + SSE 接口）、诊断、编译结果、系统提示词、动作日志 | 浏览器 |
@@ -66,6 +67,8 @@ SSE：event: patch  data: {seq, kind, ops}  ← 结构变了才重发代码；�
 | `{#if a}…{:else if b}…{:else}…{/if}` | 条件 |
 | `{#each list as item, i}…{/each}` | 循环 |
 | `ui.send(text)` / `ui.copy(text)` / `ui.open(url)` | 离开沙箱的动作，由宿主处理 |
+| `{p1.price}` | 引用工具结果。值来自 data 表，模型不重抄；没给过的名字会被丢弃，拼错的字段会报 `unknown_field` |
+| `<Image query="…" />` | 服务端解析组件：模型只写描述，服务端找图后把结果补进 data；props 必须是字面量 |
 | `\{` `\}` `\<` | 字面量字符 |
 
 **写到一半也能编译。** 末尾不完整的结构（没闭合的 `{`、没有 `>` 的标签）直接丢弃；已经有内容的未闭合元素自动闭合，空的直接丢弃。每处修补都会记成诊断。所以 M2 只需要对前缀反复调用 `compile()`。
@@ -131,12 +134,13 @@ stream.start((signal) => fetch('/api/chat', { method: 'POST', body, signal }));
 
 | kind | 什么时候 | 发什么 |
 | --- | --- | --- |
-| `structure` | 有组件、语句或代码块写完了，编译出的代码变了 | 新增原文 + 整段代码 + 常量变化 |
+| `structure` | 有组件、语句或代码块写完了，编译出的代码变了 | 新增原文 + 代码中变化的那一段（`splice`）+ 常量变化 |
 | `constants` | 代码没变，只是静态文字变长 | 新增原文 + 常量表的 `append` / `add` |
 | `text` | 模型正写在没完成的标签中间，界面不变 | 只有新增原文 |
-| `final` | 流结束 | 剩余变化 + `done: true` |
+| `data` | 服务端解析的结果到了（比如找到的图片） | data 表里新增一项 |
+| `final` | 流结束 | 剩余变化 + Markdown 降级版 + `done: true` |
 
-补丁是 JSON Patch 的一个小子集：`replace`、`add`（`/-` 表示追加到数组），外加一个字符串拼接用的 `append`，这样文字变长时只传新增的字。每批带 `seq`，客户端发现乱序会报错。
+补丁是 JSON Patch 的一个小子集：`replace`、`add`（`/-` 表示追加到数组），外加两个字符串操作。`append` 用于拼接，文字变长时只传新增的字；`splice` 用于替换一段，重新编译出的程序只在中间有变化，所以只传那一段。每批带 `seq`，客户端发现乱序会报错。
 
 为了让流式顺滑，运行时做了这几件事：
 
@@ -145,7 +149,37 @@ stream.start((signal) => fetch('/api/chat', { method: 'POST', body, signal }));
 - **出错保留上一帧。** 新程序加载失败或渲染抛错时，屏幕上保留上一个能用的输出。
 - **合并更新。** `TesseraView` 一次只让沙箱渲染一个程序；渲染期间来了多个新程序，直接跳到最新的那个。
 
-演示里一次完整的“团队估价”流式（600 字/秒，每 100 毫秒重编译）：19 次更新，其中结构 9、常量 2、纯文本 7、结束 1；共 11.6 KB，重发代码占 49%。按结构哈希缓存代码、只发代码差异，是后面可以继续压缩的地方。
+代码差量传输的效果（模型 40 字/秒、每 100 毫秒重编译，同一条流对比）：
+
+| 示例 | 更新次数 | 整段重发代码 | 只发变化的一段 | 整条流 |
+| --- | --- | --- | --- | --- |
+| 团队估价 | 69 | 代码 9.2 KB，占 41% | 代码 2.0 KB，占 13% | 22.6 → 15.4 KB（−32%） |
+| 商品对比 | 120 | 代码 26.2 KB，占 47% | 代码 3.5 KB，占 11% | 55.4 → 32.7 KB（−41%） |
+
+### 工具数据、服务端解析与降级版（M4）
+
+```ts
+// 服务端：工具结果按名字传入；解析器在组件标签写完时就开始跑，结果以 data 批次补发
+const body = createSSEStream(modelText, {
+  catalog,
+  data: { p1: product1, p2: product2 },          // 模型写 {p1.price}，值从这里来
+  resolvers: { image: (input) => searchImages(input.query) },
+  resolveTimeout: 5000,                           // 最终批次最多等这么久
+  onDone: (doc) => save(doc),                     // doc.fallback 是 Markdown 降级版
+});
+// 同一份数据要告诉模型有哪些名字可用：
+systemPrompt(catalog, { data: { p1: product1, p2: product2 } });
+```
+
+不走流式时，`compile(source, { catalog, data })` 返回 `resolutions`。用 `resolveAll(resolutions, resolvers)` 拿到结果，合进 `data` 再交给 `TesseraView` 即可。
+
+- **值不经过模型。** 编译出的程序里只有 `__D["p1"]`，没有价格本身；端到端检查会确认编译结果里找不到 `2,899`。
+- **防编造。** 没提供的名字（如 `{p3.price}`）当作未知标识符丢弃。对固定路径，编译时就核对字段是否存在（如 `{p1.prcie}` 报 `unknown_field`），这条警告也会进入给模型的反馈。
+- **解析结果的键是稳定的**：组件名加字面量 props 的哈希。同一张图在流式反复重编译时只请求一次。解析失败或超时，组件就保持“未解析”状态。
+- **降级版会求值。** `toFallbackMarkdown(source, { catalog, data, state })` 用一个小解释器，在初始状态（或传入的 `state`）下计算表达式，所以价格、列表项、`{#if}` 分支都是真实的值。ChatGPT 的降级版会丢掉计算出来的内容，这里不会。
+  - 每个节点消耗燃料，数组、字符串都有上限，只允许调用一份无副作用的内置函数清单，所以在服务端求值模型写的表达式也一定会结束。
+  - 遇到做不到的（`Date.now()`、`Math.random()` 等），就显示 `…`。
+  - 组件的 Markdown 形式由目录里的 `fallback` 决定，比如滑块写成 “席位: 8 (1–50)”，按钮写成 “[生成方案]”，图片写成 `![描述](url)`。
 
 **受控输入要保留本地副本。** 回调要先进沙箱、再把新值发回来，中间有一次往返。普通受控 input 在这段时间里会被 React 拉回旧值，所以演示里的 Slider、Checkbox 都先更新本地 state，再等 props 同步（见 `demo/src/components.tsx`）。
 
@@ -198,6 +232,8 @@ stream.start((signal) => fetch('/api/chat', { method: 'POST', body, signal }));
 - **改了 `packages/runtime/src` 要重新构建沙箱包**（`npm run build:sandbox`）。`dev` / `build` / `e2e` 会自动先构建一次，但开发服务器不会在你修改后自动重建它。
 - **状态镜像只包含 JSON 安全的值**，而且只在一次重绘成功之后才发给宿主。所以宿主手里的永远是“画得出来”的状态，重启后恢复它不会马上再次卡死。
 - **重建沙箱的那半秒左右，屏幕停在上一帧，这时的点击会被丢弃**（旧沙箱已经没了）。新沙箱画完后界面才换成新的。
+- **演示里的“找图”是本地生成的占位图**（`demo/src/resolvers.ts`），按描述生成一张带文字的 SVG，并模拟 400 毫秒的搜索延迟，不调用任何外部或付费服务。换成真实的图片搜索时，只要返回同样的 `{ url, title, source }` 结构。宿主的 Image 组件只画 `https:` 图片和栅格 / SVG 的 data URL（SVG 放在 `<img>` 里不能执行脚本）。
+- **降级版的解释器只覆盖纯表达式的常用子集**：算术、比较、模板字符串、成员访问、`Math.*`、字符串和数组方法（含 `map` / `filter` / `reduce` 等回调）。超出范围的部分显示 `…`，不会报错。
 - **体积**（演示构建，gzip 后）：沙箱 Worker 约 50 KB（SES + Preact + remote-dom + threads），只在第一次启动时下载一次。主包约 142 KB，含 React、zod 和 acorn；如果只在服务端编译，acorn 可以不进浏览器。
 
 ## 命令
@@ -211,7 +247,14 @@ npm run e2e          # 用本机 Chrome 跑端到端检查（CHROME_PATH 可覆�
                      #   阶段 1 生产构建：M1 交互闭环 + M3 隔离与看门狗；阶段 2 开发服务器：M2 流式
 ```
 
-当前结果：类型检查通过；单元测试 64 项、SES 沙箱测试 8 项、端到端检查 21 项全部通过（连续 3 次）。端到端截图在 `.e2e/demo.png`。
+当前结果：类型检查通过；单元测试 87 项、SES 沙箱测试 8 项、端到端检查 26 项全部通过（连续 2 次）。端到端截图在 `.e2e/demo.png`。
+
+M4 相关的关键检查：
+- 商品对比里的价格来自 data 表，编译结果里没有价格。
+- 两张图在标签写完后由解析器补上，并由宿主画出来。
+- 降级版里有绑定的值、算出来的“便宜 400 元”和找到的图。
+- 流式时代码占流量的比例在 30% 以下（上表实测约 13%，不拆分时约 41%）。
+- 流式商品对比至少收到 2 次 `data` 更新。
 
 M3 相关的关键检查：
 - iframe 探测：不透明源；cookie、存储、父页面都读不到；iframe 和其中的 Worker 都联不了网。
@@ -233,5 +276,5 @@ M3 相关的关键检查：
 | **M1** ✅ | 非流式闭环：目录、编译器、SES Worker、remote-dom、React 宿主、演示、测试 |
 | **M2** ✅ | 流式：服务端前缀重编译 + SSE 补丁（structure / constants / text / final）；稳定根组件、工厂缓存、合并更新、出错保留上一帧；`useTesseraStream()` |
 | **M3** ✅ | 隔离加固：不透明源 iframe + CSP、看门狗（渲染超时、心跳、隔离、重建、重启上限）、状态镜像（重启恢复、刷新保留）、`feedbackForModel()` |
-| M4 | 数据与动作：工具结果按 ID 绑定（模型只写引用）、服务端解析组件（如按描述搜图）、Markdown 降级版本；传输优化（代码按结构哈希缓存、只发代码差异，M3 时间不够留到这里）；可选的独立域名 runner 页面 |
-| M5 | 提示词与评测：一组基准提示，统计解析成功率、诊断数、首屏 token 数 |
+| **M4** ✅ | 数据与传输：工具结果按 ID 绑定（模型只写引用，字段校验）、服务端解析组件（`<Image query>` + `resolveAll` / 流式 `data` 批次）、会求值的 Markdown 降级版、代码 `splice` 差量传输 |
+| M5 | 提示词与评测：一组基准提示，接真实模型跑，统计解析成功率、诊断数、首屏 token 数；可选的独立域名 runner 页面 |

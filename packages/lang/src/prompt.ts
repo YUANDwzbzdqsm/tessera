@@ -1,8 +1,11 @@
 import type { Catalog } from '@tessera/catalog';
+import { bindingNames } from './codegen';
 
 export interface SystemPromptOptions {
   /** Appended after the generated guide, e.g. product-specific tone or rules. */
   readonly extra?: string;
+  /** Tool results available to this answer by name; their names and fields are listed for the model. */
+  readonly data?: Readonly<Record<string, unknown>>;
 }
 
 const GUIDE = `You can answer with an interactive interface written in Tessera markup.
@@ -19,6 +22,9 @@ Syntax
 - {#if cond} … {:else if other} … {:else} … {/if} renders conditionally.
 - {#each items as item, i} … {/each} repeats content.
 - ui.send("text") sends a new message from the user; ui.copy("text") copies text; ui.open("https://…") opens a link.
+- Tool results are available by name (for example p1). Show their values with {p1.price} or pass them as props;
+  never retype a value from a tool result. Names you were not given do not exist.
+- Components marked as resolved by the server (such as <Image query="…">) take literal descriptions; never write URLs.
 - Put directives, block tags and block-level components on their own lines. Write \\{ for a literal brace.
 
 Components
@@ -39,5 +45,18 @@ Drag the slider to see the **monthly** price.
 
 /** The system-prompt section that teaches a model the markup and the catalog. */
 export function systemPrompt(catalog: Catalog, options: SystemPromptOptions = {}): string {
-  return GUIDE + catalog.describe() + '\n' + EXAMPLE + (options.extra ? '\n' + options.extra + '\n' : '');
+  const data = options.data ? describeData(options.data) : '';
+  return GUIDE + catalog.describe() + '\n' + EXAMPLE + data + (options.extra ? '\n' + options.extra + '\n' : '');
+}
+
+/** "p1: { title, price, merchant }" per binding, so the model knows which names and fields exist. */
+function describeData(data: Readonly<Record<string, unknown>>): string {
+  const names = bindingNames(data);
+  if (!names.length) return '';
+  const shape = (v: unknown): string => {
+    if (Array.isArray(v)) return `list of ${v.length}${v.length ? ` × ${shape(v[0])}` : ''}`;
+    if (v && typeof v === 'object') return `{ ${Object.keys(v).join(', ')} }`;
+    return typeof v;
+  };
+  return `\nTool data for this answer\n${names.map((n) => `- ${n}: ${shape(data[n])}`).join('\n')}\n`;
 }

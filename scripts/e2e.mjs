@@ -34,7 +34,7 @@ const expectText = async (locator, expected) => {
   const actual = (await locator.innerText()).trim();
   if (actual !== expected) throw new Error(`expected "${expected}", got "${actual}"`);
 };
-const number = async (locator) => Number((await locator.innerText()).trim());
+const number = async (locator) => Number((await locator.innerText()).trim().replace(/%$/, ''));
 const CSP_REPORT = /Content Security Policy|Refused to connect/;
 /** Runs a probe that triggers CSP violations on purpose, then drops those (and only those) console errors. */
 async function expectingCspErrors(errors, fn) {
@@ -115,6 +115,31 @@ console.log(`phase 1: production build at ${staticServer.resolvedUrls.local[0]}`
       if (!text.includes(part)) throw new Error(`missing "${part}"`);
     }
     if (/was dropped/.test(text)) throw new Error('boilerplate not stripped');
+    await page.getByRole('tab', { name: /诊断/ }).click();
+  });
+
+  await check('tool data is bound by name: values on screen come from the data table, not the program text', async () => {
+    await page.getByRole('button', { name: '商品对比' }).click();
+    await waitText(pane, '¥2,899');
+    await waitText(pane, '¥2,499');
+    await waitText(pane, '便宜 400 元');
+    await page.getByRole('tab', { name: '编译结果' }).click();
+    const compiled = await page.getByTestId('compiled').innerText();
+    if (compiled.includes('2,899') || !compiled.includes('__D["p1"]')) throw new Error('price was copied into the program');
+  });
+
+  await check('server-resolved images arrive after their tags and are drawn by the host', async () => {
+    await pane.locator('figure.t-image[data-state="resolved"] img').nth(1).waitFor({ timeout: 10_000 });
+    const sources = await pane.locator('figure.t-image img').evaluateAll((imgs) => imgs.map((i) => i.getAttribute('src')));
+    if (sources.length !== 2 || sources.some((s) => !s.startsWith('data:image/svg+xml;charset=utf-8,'))) throw new Error(JSON.stringify(sources.map((s) => s.slice(0, 40))));
+  });
+
+  await check('the Markdown fallback evaluates bound values, computed text and found images', async () => {
+    await page.getByRole('tab', { name: 'Markdown 降级版' }).click();
+    const md = await page.getByTestId('fallback').innerText();
+    for (const part of ['## 降噪耳机怎么选', '# ¥2,899', '![索尼 头戴式降噪耳机 黑色](data:image/svg+xml', '更便宜的是 **Bose QuietComfort Ultra**，便宜 400 元。', '[就买便宜的]']) {
+      if (!md.includes(part)) throw new Error(`missing "${part}"`);
+    }
     await page.getByRole('tab', { name: /诊断/ }).click();
   });
 
@@ -277,6 +302,23 @@ console.log(`phase 2: dev server with SSE endpoint at ${devUrl}`);
     await page.getByTestId('stream-dismiss').click();
     if ((await source.inputValue()) !== original) throw new Error('the original source was overwritten');
     await waitText(pane, '美元/月');
+  });
+
+  await check('changed code travels as splices: code is a small share of the stream', async () => {
+    // Before M4 the full program was resent on every structure change (49% of the bytes for this sample).
+    const share = await number(page.getByTestId('stat-code-share'));
+    if (!(share <= 30)) throw new Error(`code share ${share}%`);
+  });
+
+  await check('a streamed answer with tool data gets its images from the server while it streams', async () => {
+    await page.getByRole('button', { name: '商品对比' }).click();
+    await page.getByTestId('stream-speed').selectOption('600');
+    await page.getByTestId('stream-start').click();
+    await waitText(status, '完成', 20_000);
+    await waitText(pane, '¥2,899');
+    await pane.locator('figure.t-image[data-state="resolved"] img').nth(1).waitFor({ timeout: 5_000 });
+    const data = await number(page.getByTestId('stat-data'));
+    if (data < 2) throw new Error(`expected at least 2 data updates, got ${data}`);
   });
 
   await check('streaming reports no host or runtime issues', async () => {

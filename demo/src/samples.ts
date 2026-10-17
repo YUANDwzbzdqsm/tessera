@@ -2,6 +2,8 @@ export interface Sample {
   readonly id: string;
   readonly label: string;
   readonly source: string;
+  /** Tool results this answer may refer to by name, as a search tool would have returned them. */
+  readonly data?: Readonly<Record<string, unknown>>;
 }
 
 export const samples: readonly Sample[] = [
@@ -36,6 +38,33 @@ export const samples: readonly Sample[] = [
 {:else}
 还差 **{left.length}** 样：{left.join("、")}
 {/if}`,
+  },
+  {
+    id: 'compare',
+    label: '商品对比',
+    data: {
+      p1: { title: 'Sony WH-1000XM6', price: '¥2,899', priceValue: 2899, merchant: '京东', rating: 4.8 },
+      p2: { title: 'Bose QuietComfort Ultra', price: '¥2,499', priceValue: 2499, merchant: '天猫', rating: 4.6 },
+    },
+    source: `## 降噪耳机怎么选
+两款都在预算内。价格和商家直接取自搜索结果，模型只写了引用。
+{@let cheaper = p1.priceValue < p2.priceValue ? p1 : p2}
+<Box direction="row" gap={3}>
+<Box border padding={3} gap={1}>
+<Image query="索尼 头戴式降噪耳机 黑色" aspect="4:3" />
+<Title size="md">{p1.title}</Title>
+<Title size="xl">{p1.price}</Title>
+<Caption>{p1.merchant} · 评分 {p1.rating}</Caption>
+</Box>
+<Box border padding={3} gap={1}>
+<Image query="Bose 头戴式降噪耳机 白色" aspect="4:3" />
+<Title size="md">{p2.title}</Title>
+<Title size="xl">{p2.price}</Title>
+<Caption>{p2.merchant} · 评分 {p2.rating}</Caption>
+</Box>
+</Box>
+更便宜的是 **{cheaper.title}**，便宜 {Math.abs(p1.priceValue - p2.priceValue)} 元。
+<Button onClick={() => ui.send(\`帮我下单 \${cheaper.title}\`)}>就买便宜的</Button>`,
   },
   {
     id: 'hang',

@@ -119,10 +119,10 @@ describe('the compartment boundary', () => {
     const factory = evaluateProgram(compile('## Hel', { catalog: defineCatalog() }).code, compartment);
     const grown = compile('## Hello', { catalog: defineCatalog() });
     expect(grown.code).toBe(compile('## Hel', { catalog: defineCatalog() }).code);
-    expect(text(instantiate(factory, grown.constants, endowments)())).toBe('Hello');
+    expect(text(instantiate(factory, grown.constants, {}, endowments)())).toBe('Hello');
     // A different program in the same compartment still sees no host capabilities.
     const probe = evaluateProgram('(function () { return function () { return typeof fetch; }; })', compartment);
-    expect(instantiate(probe, [], endowments)()).toBe('undefined');
+    expect(instantiate(probe, [], {}, endowments)()).toBe('undefined');
   });
 
   it('rejects code that is not a program', () => {

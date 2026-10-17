@@ -8,6 +8,12 @@ import { z } from 'zod';
  */
 export type ChildrenKind = 'none' | 'inline' | 'block';
 
+/**
+ * Renders a component as Markdown for clients that cannot run programs. `children` is the already-rendered
+ * Markdown of its children (blocks joined by blank lines, or one inline run).
+ */
+export type FallbackRenderer = (props: Readonly<Record<string, unknown>>, children: string) => string;
+
 export interface ComponentSpec {
   /** PascalCase name the model writes, e.g. `Slider`. */
   readonly name: string;
@@ -16,6 +22,13 @@ export interface ComponentSpec {
   /** Function-valued props, e.g. `onChange`. The host calls them with one argument. */
   readonly events: readonly string[];
   readonly children: ChildrenKind;
+  /**
+   * Names a server-side resolver, e.g. `image`. The model writes literal props (say a search query); the server
+   * runs the resolver on them and the result reaches the component as its `resolved` prop. The model never
+   * writes `resolved` itself.
+   */
+  readonly resolver?: string;
+  readonly fallback?: FallbackRenderer;
 }
 
 export interface ComponentInput {
@@ -24,7 +37,12 @@ export interface ComponentInput {
   props?: z.ZodObject<z.ZodRawShape>;
   events?: readonly string[];
   children?: ChildrenKind;
+  resolver?: string;
+  fallback?: FallbackRenderer;
 }
+
+/** The prop through which a resolver's result reaches a component. */
+export const RESOLVED_PROP = 'resolved';
 
 /** The serialisable part of a component spec, sent to the sandbox worker. */
 export interface ComponentWire {
@@ -52,12 +70,15 @@ export function defineComponent(input: ComponentInput): ComponentSpec {
   for (const e of events) {
     if (!EVENT.test(e)) throw new Error(`Event prop must look like onChange: ${input.name}.${e}`);
   }
+  if (input.props && RESOLVED_PROP in input.props.shape) throw new Error(`${input.name}: the prop name "${RESOLVED_PROP}" is reserved`);
   return Object.freeze({
     name: input.name,
     description: input.description,
     props: input.props ?? z.object({}),
     events: Object.freeze([...events]),
     children: input.children ?? 'none',
+    resolver: input.resolver,
+    fallback: input.fallback,
   });
 }
 
@@ -104,6 +125,8 @@ export class Catalog {
     const spec = this.#byName.get(component);
     if (!spec) return { code: 'unknown_prop', component, prop, message: `Unknown component ${component}` };
     if (value === undefined) return null;
+    // Resolver results come from the server, in whatever shape the resolver returns; the component validates them.
+    if (prop === RESOLVED_PROP && spec.resolver) return null;
     if (spec.events.includes(prop)) {
       return typeof value === 'function'
         ? null
@@ -121,7 +144,7 @@ export class Catalog {
     return this.specs().map((spec) => ({
       name: spec.name,
       tag: tagFor(spec.name),
-      props: Object.keys(spec.props.shape),
+      props: spec.resolver ? [...Object.keys(spec.props.shape), RESOLVED_PROP] : Object.keys(spec.props.shape),
       events: spec.events.map((prop) => ({ prop, event: eventNameFor(prop) })),
     }));
   }
@@ -154,6 +177,15 @@ export const markdownComponents: readonly ComponentSpec[] = [
 ];
 
 const space = z.number().int().min(0).max(8);
+const text = (v: unknown) => (v === undefined || v === null ? '' : String(v));
+
+/** What the `image` resolver returns. Hosts should still check the URL before drawing it. */
+export const imageResult = z.object({
+  url: z.string(),
+  title: z.string().optional(),
+  source: z.string().optional(),
+});
+export type ImageResult = z.infer<typeof imageResult>;
 
 /** A small starter set. Hosts can replace or extend it. */
 export const starterComponents: readonly ComponentSpec[] = [
@@ -180,12 +212,14 @@ export const starterComponents: readonly ComponentSpec[] = [
       label: z.string().optional(),
     }),
     events: ['onChange'],
+    fallback: (p) => `${text(p.label) || 'Value'}: ${text(p.value)} (${text(p.min)}–${text(p.max)})`,
   }),
   defineComponent({
     name: 'Checkbox',
     description: 'A checkbox with a label. onChange receives true or false.',
     props: z.object({ checked: z.boolean(), label: z.string() }),
     events: ['onChange'],
+    fallback: (p) => `- [${p.checked ? 'x' : ' '}] ${text(p.label)}`,
   }),
   defineComponent({
     name: 'Button',
@@ -193,6 +227,7 @@ export const starterComponents: readonly ComponentSpec[] = [
     props: z.object({ variant: z.enum(['solid', 'outline', 'ghost']).optional(), disabled: z.boolean().optional() }),
     events: ['onClick'],
     children: 'inline',
+    fallback: (_, children) => `[${children}]`,
   }),
   defineComponent({ name: 'Caption', description: 'Small secondary text.', children: 'inline' }),
   defineComponent({
@@ -200,8 +235,24 @@ export const starterComponents: readonly ComponentSpec[] = [
     description: 'A short status label.',
     props: z.object({ tone: z.enum(['neutral', 'info', 'success', 'warning', 'danger']).optional() }),
     children: 'inline',
+    fallback: (_, children) => `\`${children}\``,
   }),
-  defineComponent({ name: 'Divider', description: 'A horizontal rule.' }),
+  defineComponent({ name: 'Divider', description: 'A horizontal rule.', fallback: () => '---' }),
+  defineComponent({
+    name: 'Image',
+    description: 'An image the server finds for a description. Describe what it should show in query; never write image URLs.',
+    props: z.object({
+      query: z.string().min(1),
+      alt: z.string().optional(),
+      aspect: z.enum(['1:1', '4:3', '16:9']).optional(),
+    }),
+    resolver: 'image',
+    fallback: (p) => {
+      const found = imageResult.safeParse(p.resolved);
+      const label = text(p.alt) || text(p.query);
+      return found.success ? `![${label}](${found.data.url})` : `*[image: ${label}]*`;
+    },
+  }),
 ];
 
 /** Builds a catalog. Markdown components are always included; pass your own specs to replace the starter set. */

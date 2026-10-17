@@ -43,6 +43,8 @@ export interface GuardResult {
   readonly issues: readonly GuardIssue[];
   /** Set when the expression is a plain literal, so its value can be validated at compile time. */
   readonly literal?: { readonly value: unknown };
+  /** The parsed expression (ESTree), when it parsed. */
+  readonly ast?: unknown;
 }
 
 // acorn's ESTree nodes, loosely typed: the walker only reads the fields it switches on.
@@ -202,7 +204,63 @@ export function guardExpression(source: string, scope: ReadonlySet<string>): Gua
   };
 
   expr(ast);
-  return { issues, literal: literalOf(ast) };
+  return { issues, literal: literalOf(ast), ast };
+}
+
+/**
+ * Member paths rooted at a binding, e.g. `p1.price` in `{p1.price * 2}`, with the first segment that does not exist
+ * in `data`. Only fixed paths are checked (dotted or literal keys); dynamic keys are left to run time.
+ */
+export function missingBindingPaths(ast: unknown, data: Readonly<Record<string, unknown>>, bindings: ReadonlySet<string>): string[] {
+  const missing: string[] = [];
+  const visit = (node: N | null | undefined, shadowed: ReadonlySet<string>): void => {
+    if (!node || typeof node !== 'object') return;
+    if (node.type === 'MemberExpression' || node.type === 'Identifier') {
+      const path = memberPath(node);
+      if (path && bindings.has(path[0]!) && !shadowed.has(path[0]!)) {
+        let value: unknown = data[path[0]!];
+        for (let i = 1; i < path.length; i++) {
+          const key = path[i]!;
+          // Properties and methods of primitives (title.length, price.toFixed) are not checked.
+          if (value !== null && value !== undefined && typeof value !== 'object') return;
+          // `in` also sees inherited members, so items.map and items.length pass.
+          if (value === null || value === undefined || !(key in (value as object))) {
+            missing.push(path.slice(0, i + 1).join('.'));
+            return;
+          }
+          value = (value as Record<string, unknown>)[key];
+        }
+        return;
+      }
+    }
+    if (node.type === 'ArrowFunctionExpression') {
+      const inner = new Set(shadowed);
+      for (const p of node.params) if (p.type === 'Identifier') inner.add(p.name);
+      visit(node.body, inner);
+      return;
+    }
+    for (const key of Object.keys(node)) {
+      if (key === 'type' || key === 'start' || key === 'end') continue;
+      const child = node[key];
+      if (Array.isArray(child)) child.forEach((c) => visit(c, shadowed));
+      else if (child && typeof child === 'object' && typeof child.type === 'string') visit(child, shadowed);
+    }
+  };
+  visit(ast as N, new Set());
+  return missing;
+}
+
+/** `a.b["c"]` -> ['a', 'b', 'c']; null when any key is computed from an expression. */
+function memberPath(node: N): string[] | null {
+  if (node.type === 'Identifier') return [node.name];
+  if (node.type !== 'MemberExpression' || node.optional) return null;
+  const head = memberPath(node.object);
+  if (!head) return null;
+  if (!node.computed) return [...head, node.property.name];
+  if (node.property.type === 'Literal' && (typeof node.property.value === 'string' || typeof node.property.value === 'number')) {
+    return [...head, String(node.property.value)];
+  }
+  return null;
 }
 
 function literalOf(node: N): { value: unknown } | undefined {

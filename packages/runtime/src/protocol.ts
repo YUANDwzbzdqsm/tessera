@@ -5,6 +5,8 @@ import type { ComponentWire } from '@tessera/catalog';
 export interface Program {
   readonly code: string;
   readonly constants: readonly string[];
+  /** Tool results by name and resolver results by resolution key. Plain JSON-like data. */
+  readonly data?: Readonly<Record<string, unknown>>;
 }
 
 /** Interactions that leave the sandbox. The host decides what each one does. */

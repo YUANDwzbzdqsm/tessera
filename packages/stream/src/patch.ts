@@ -33,7 +33,31 @@ function setIn(node: unknown, segments: readonly string[], op: PatchOp): unknown
 }
 
 function leaf(current: unknown, op: PatchOp): unknown {
-  if (op.op !== 'append') return op.value;
-  if (typeof current !== 'string') throw new Error(`append needs a string at ${op.path}`);
-  return current + op.value;
+  if (op.op === 'append') {
+    if (typeof current !== 'string') throw new Error(`append needs a string at ${op.path}`);
+    return current + op.value;
+  }
+  if (op.op === 'splice') {
+    if (typeof current !== 'string') throw new Error(`splice needs a string at ${op.path}`);
+    if (op.start < 0 || op.remove < 0 || op.start + op.remove > current.length) throw new Error(`splice out of range at ${op.path}`);
+    return current.slice(0, op.start) + op.value + current.slice(op.start + op.remove);
+  }
+  return op.value;
+}
+
+/** Escapes a key for use as one JSON Pointer segment. */
+export function pointer(key: string): string {
+  return key.replace(/~/g, '~0').replace(/\//g, '~1');
+}
+
+/** The cheaper of a splice (only the changed middle) and a full replace, for turning `prev` into `next`. */
+export function stringDiff(path: string, prev: string, next: string): PatchOp {
+  const max = Math.min(prev.length, next.length);
+  let start = 0;
+  while (start < max && prev.charCodeAt(start) === next.charCodeAt(start)) start++;
+  let end = 0;
+  while (end < max - start && prev.charCodeAt(prev.length - 1 - end) === next.charCodeAt(next.length - 1 - end)) end++;
+  const splice: PatchOp = { op: 'splice', path, start, remove: prev.length - start - end, value: next.slice(start, next.length - end) };
+  const replace: PatchOp = { op: 'replace', path, value: next };
+  return JSON.stringify(splice).length < JSON.stringify(replace).length ? splice : replace;
 }

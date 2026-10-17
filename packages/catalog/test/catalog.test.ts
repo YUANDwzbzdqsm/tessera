@@ -43,6 +43,23 @@ describe('catalog', () => {
     expect(() => structuredClone(catalog.wire())).not.toThrow();
   });
 
+  it('lets resolver components receive a server result the model never writes', () => {
+    const image = catalog.get('Image')!;
+    expect(image.resolver).toBe('image');
+    expect(catalog.wire().find((w) => w.name === 'Image')!.props).toEqual(['query', 'alt', 'aspect', 'resolved']);
+    expect(catalog.checkProp('Image', 'resolved', { url: 'data:image/svg+xml,…' })).toBeNull();
+    expect(catalog.checkProp('Slider', 'resolved', 1)?.code).toBe('unknown_prop');
+    expect(catalog.describe()).not.toContain('resolved');
+    expect(() => defineComponent({ name: 'X', description: '', props: z.object({ resolved: z.string() }) })).toThrow(/reserved/);
+  });
+
+  it('renders starter components as Markdown fallbacks', () => {
+    expect(catalog.get('Slider')!.fallback!({ label: '席位', value: 8, min: 1, max: 50 }, '')).toBe('席位: 8 (1–50)');
+    expect(catalog.get('Checkbox')!.fallback!({ label: '帐篷', checked: true }, '')).toBe('- [x] 帐篷');
+    expect(catalog.get('Image')!.fallback!({ query: 'a cat', resolved: { url: 'https://x/cat.png' } }, '')).toBe('![a cat](https://x/cat.png)');
+    expect(catalog.get('Image')!.fallback!({ query: 'a cat' }, '')).toBe('*[image: a cat]*');
+  });
+
   it('rejects bad definitions', () => {
     expect(() => defineComponent({ name: 'slider', description: '' })).toThrow();
     expect(() => defineComponent({ name: 'X', description: '', events: ['change'] })).toThrow();

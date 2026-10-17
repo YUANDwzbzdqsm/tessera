@@ -1,27 +1,40 @@
-import type { Catalog } from '@tessera/catalog';
+import { RESOLVED_PROP, type Catalog } from '@tessera/catalog';
 import type { Diagnostics } from './diagnostics';
-import { ALLOWED_GLOBALS, guardExpression } from './guard';
+import { ALLOWED_GLOBALS, guardExpression, missingBindingPaths } from './guard';
 import type { UIEach, UIElement, UIIf, UINode } from './markdown';
 import type { Directive } from './parse';
+import { resolutionFor, type Resolution } from './resolve';
 
 interface Ctx {
   readonly catalog: Catalog;
   readonly diags: Diagnostics;
   readonly constants: string[];
+  /** Tool results by name; the model refers to them instead of retyping their values. */
+  readonly data: Readonly<Record<string, unknown>>;
+  readonly bindings: ReadonlySet<string>;
+  readonly resolutions: Resolution[];
+}
+
+const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
+
+/** Names in `data` usable as bindings: plain identifiers that do not collide with reserved or global names. */
+export function bindingNames(data: Readonly<Record<string, unknown>>): string[] {
+  return Object.keys(data).filter((k) => IDENTIFIER.test(k) && !k.startsWith('__') && k !== 'ui' && !ALLOWED_GLOBALS.has(k));
 }
 
 const EACH = /^([\s\S]+?)\s+as\s+([A-Za-z_$][\w$]*)(?:\s*,\s*([A-Za-z_$][\w$]*))?\s*$/;
 
 /**
  * Emits the program as one function expression. The runtime evaluates it in a sandbox and calls it with
- * (h, Fragment, ui, constants, safe); the result is the root component.
+ * (h, Fragment, ui, constants, safe, data); the result is the root component.
  *
  * - Static text lives in the constants table, so text that grows while streaming changes data, not code.
+ * - Tool results live in the data table and are read by name, so values on screen are never retyped by the model.
  * - Every expression is wrapped in __safe, so a throwing expression removes one value instead of the whole render.
  * - State is keyed by its name, so its value survives a recompile.
  */
 export function generate(directives: readonly Directive[], nodes: readonly UINode[], ctx: Ctx): string {
-  const scope = new Set<string>();
+  const scope = new Set<string>(ctx.bindings);
   const lines: string[] = [];
 
   for (const d of directives) {
@@ -31,7 +44,7 @@ export function generate(directives: readonly Directive[], nodes: readonly UINod
     }
     const setter = d.kind === 'state' ? 'set' + d.name[0]!.toUpperCase() + d.name.slice(1) : null;
     if (scope.has(d.name) || (setter && scope.has(setter))) {
-      ctx.diags.error('duplicate_name', `${d.name} is declared twice`, d.pos);
+      ctx.diags.error('duplicate_name', ctx.bindings.has(d.name) ? `${d.name} is already the name of tool data` : `${d.name} is declared twice`, d.pos);
       continue;
     }
     const value = checked(d.source, scope, d.pos, ctx) ?? 'undefined';
@@ -46,9 +59,10 @@ export function generate(directives: readonly Directive[], nodes: readonly UINod
 
   const body = children(nodes, scope, ctx);
   return [
-    '(function (__h, __F, __ui, __C, __safe) {',
+    '(function (__h, __F, __ui, __C, __safe, __D) {',
     '  "use strict";',
     '  const ui = __ui.api;',
+    ...[...ctx.bindings].map((name) => `  const ${name} = __D[${JSON.stringify(name)}];`),
     '  return function TesseraProgram() {',
     ...lines.map((l) => '    ' + l),
     `    return __h(__F, null${body});`,
@@ -97,6 +111,7 @@ function element(n: UIElement, scope: ReadonlySet<string>, ctx: Ctx): string {
     if (attr.value.kind === 'expr') {
       const guard = guardExpression(attr.value.source, scope);
       if (report(guard.issues, attr.pos, ctx)) continue;
+      checkFields(guard.ast, attr.pos, ctx);
       if (guard.literal && !validLiteral(n.name, attr.name, guard.literal.value, attr.pos, ctx)) continue;
       props.push(`${key}: __safe(() => (${attr.value.source}), undefined)`);
       continue;
@@ -108,6 +123,14 @@ function element(n: UIElement, scope: ReadonlySet<string>, ctx: Ctx): string {
     }
     if (!validLiteral(n.name, attr.name, value, attr.pos, ctx)) continue;
     props.push(`${key}: ${JSON.stringify(value)}`);
+  }
+  const resolution = resolutionFor(spec, n.attrs, (source) => guardExpression(source, scope).literal);
+  if (resolution && 'dynamic' in resolution) {
+    ctx.diags.warn('dynamic_resolver_input', `<${n.name}> ${resolution.dynamic} must be a literal for the server to resolve it; it stays unresolved`, n.pos);
+  } else if (resolution && Object.entries(resolution.input).every(([prop, value]) => !ctx.catalog.checkProp(n.name, prop, value))) {
+    // (Invalid literal props were already reported above; such an element is not sent to the resolver.)
+    if (!ctx.resolutions.some((r) => r.key === resolution.key)) ctx.resolutions.push(resolution);
+    props.push(`${JSON.stringify(RESOLVED_PROP)}: __safe(() => __D[${JSON.stringify(resolution.key)}], undefined)`);
   }
   const propsCode = props.length ? `{ ${props.join(', ')} }` : 'null';
   return `__h(${JSON.stringify(n.name)}, ${propsCode}${children(n.children, scope, ctx)})`;
@@ -145,7 +168,17 @@ function eachBlock(n: UIEach, scope: ReadonlySet<string>, ctx: Ctx): string | nu
 /** Returns the source when it passes the guard, otherwise reports and returns null. */
 function checked(source: string, scope: ReadonlySet<string>, pos: number, ctx: Ctx): string | null {
   const guard = guardExpression(source, scope);
-  return report(guard.issues, pos, ctx) ? null : source;
+  if (report(guard.issues, pos, ctx)) return null;
+  checkFields(guard.ast, pos, ctx);
+  return source;
+}
+
+/** A fixed path into tool data that does not exist renders nothing; tell the model which field it got wrong. */
+function checkFields(ast: unknown, pos: number, ctx: Ctx): void {
+  if (!ctx.bindings.size || !ast) return;
+  for (const path of missingBindingPaths(ast, ctx.data, ctx.bindings)) {
+    ctx.diags.warn('unknown_field', `${path} does not exist in the tool data`, pos);
+  }
 }
 
 function report(issues: readonly { code: 'invalid_expression' | 'forbidden_syntax' | 'unknown_identifier'; message: string }[], pos: number, ctx: Ctx): boolean {

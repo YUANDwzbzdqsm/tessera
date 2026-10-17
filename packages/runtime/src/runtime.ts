@@ -163,7 +163,7 @@ export function createRuntime(): RuntimeApi {
         current = { code: program.code, factory };
       }
       try {
-        renderProgram = instantiate(factory, program.constants, { h, Fragment, ui, safe });
+        renderProgram = instantiate(factory, program.constants, program.data, { h, Fragment, ui, safe });
       } catch (e) {
         const message = errorMessage(e);
         report({ code: 'program_error', message });

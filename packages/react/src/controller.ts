@@ -208,7 +208,7 @@ export class SandboxController {
   async #renderOn(live: Live, program: Program, quarantineOnTimeout: boolean): Promise<void> {
     try {
       const result = await withTimeout(
-        live.conn.runtime.render({ code: program.code, constants: [...program.constants] }),
+        live.conn.runtime.render({ code: program.code, constants: [...program.constants], data: program.data ?? {} }),
         this.#options.renderTimeout,
         'Render',
       );

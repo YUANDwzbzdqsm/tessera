@@ -1,3 +1,4 @@
+import { imageResult } from '@tessera/catalog';
 import type { TesseraComponents } from '@tessera/react';
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 
@@ -103,6 +104,21 @@ function Badge({ tone = 'neutral', children }: Kids & { tone?: string }) {
   return <span className={`t-badge t-badge-${tone}`}>{children}</span>;
 }
 
+/**
+ * Shows what the server found for the query. The URL comes from the resolver, never from the model, but the host
+ * still only draws https images and raster or SVG data URLs (an SVG in <img> cannot run scripts).
+ */
+function Image({ query, alt, aspect = '4:3', resolved }: { query?: string; alt?: string; aspect?: string; resolved?: unknown }) {
+  const found = imageResult.safeParse(resolved);
+  const url = found.success && /^(https:|data:image\/(png|jpeg|gif|webp|svg\+xml)[;,])/.test(found.data.url) ? found.data.url : null;
+  const ratio = aspect.replace(':', ' / ');
+  return (
+    <figure className="t-image" style={{ aspectRatio: ratio }} data-state={url ? 'resolved' : 'pending'}>
+      {url ? <img src={url} alt={alt ?? query ?? ''} /> : <span className="t-image-pending">正在找图：{query}</span>}
+    </figure>
+  );
+}
+
 function List({ ordered, children }: Kids & { ordered?: boolean }) {
   return ordered ? <ol className="t-list">{children}</ol> : <ul className="t-list">{children}</ul>;
 }
@@ -122,4 +138,5 @@ export const components: TesseraComponents = {
   Caption: ({ children }: Kids) => <div className="t-caption">{children}</div>,
   Badge,
   Divider: () => <hr className="t-divider" />,
+  Image,
 };

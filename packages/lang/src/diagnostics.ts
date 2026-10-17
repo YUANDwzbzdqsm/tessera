@@ -20,7 +20,10 @@ export type DiagnosticCode =
   // Expressions.
   | 'invalid_expression'
   | 'forbidden_syntax'
-  | 'unknown_identifier';
+  | 'unknown_identifier'
+  // Data from tools and server resolvers.
+  | 'unknown_field'
+  | 'dynamic_resolver_input';
 
 export interface Diagnostic {
   readonly code: DiagnosticCode;

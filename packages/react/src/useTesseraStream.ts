@@ -22,7 +22,7 @@ export interface TesseraStreamState {
 
 const emptyStats: StreamStats = {
   updates: 0,
-  byKind: { structure: 0, constants: 0, text: 0, final: 0 },
+  byKind: { structure: 0, constants: 0, text: 0, data: 0, final: 0 },
   bytes: 0,
   codeBytes: 0,
   lastKind: null,

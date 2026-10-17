@@ -90,15 +90,23 @@ export function evaluateProgram(code: string, compartment: Compartment = createC
   return factory as ProgramFactory;
 }
 
-/** Binds a factory to a constants table. Cheap: a constants-only update reuses the evaluated factory. */
-export function instantiate(factory: ProgramFactory, constants: readonly string[], { h, Fragment, ui, safe }: Endowments): () => unknown {
-  const root = factory(harden(h), Fragment, harden(ui), harden([...constants]), harden(safe));
+/**
+ * Binds a factory to a constants table and a data table (tool results, resolver results). Cheap: an update that
+ * only changes constants or data (text growing, an image arriving) reuses the evaluated factory.
+ */
+export function instantiate(
+  factory: ProgramFactory,
+  constants: readonly string[],
+  data: Readonly<Record<string, unknown>> | undefined,
+  { h, Fragment, ui, safe }: Endowments,
+): () => unknown {
+  const root = factory(harden(h), Fragment, harden(ui), harden([...constants]), harden(safe), harden(structuredClone(data ?? {})));
   if (typeof root !== 'function') throw new TypeError('Program did not return a component');
   return root as () => unknown;
 }
 
 export function loadProgram(program: Program, endowments: Endowments, compartment?: Compartment): () => unknown {
-  return instantiate(evaluateProgram(program.code, compartment), program.constants, endowments);
+  return instantiate(evaluateProgram(program.code, compartment), program.constants, program.data, endowments);
 }
 
 export function errorMessage(e: unknown): string {
