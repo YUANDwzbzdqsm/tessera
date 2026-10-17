@@ -1,0 +1,13 @@
+{
+  "name": "@tessera/lang",
+  "version": "0.1.0",
+  "description": "Tessera markup compiler: Markdown + catalog tags + guarded expressions -> JS program + constants table.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@tessera/catalog": "0.1.0",
+    "acorn": "8.19.0"
+  }
+}

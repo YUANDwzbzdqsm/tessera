@@ -1,0 +1,12 @@
+{
+  "name": "@tessera/catalog",
+  "version": "0.1.0",
+  "description": "Component catalog for Tessera: zod prop schemas, validation and system-prompt generation.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "zod": "4.6.7"
+  }
+}

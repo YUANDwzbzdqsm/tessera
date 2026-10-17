@@ -1,0 +1,1 @@
+import '@tessera/runtime/worker';

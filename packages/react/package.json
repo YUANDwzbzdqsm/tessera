@@ -1,0 +1,19 @@
+{
+  "name": "@tessera/react",
+  "version": "0.1.0",
+  "description": "React host for Tessera: receives the remote tree and draws it with your registered components.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@quilted/threads": "4.1.0",
+    "@remote-dom/core": "1.12.0",
+    "@tessera/catalog": "0.1.0",
+    "@tessera/runtime": "0.1.0",
+    "@tessera/stream": "0.1.0"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  }
+}

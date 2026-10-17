@@ -1,0 +1,20 @@
+{
+  "name": "@tessera/demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tessera/catalog": "0.1.0",
+    "@tessera/lang": "0.1.0",
+    "@tessera/react": "0.1.0",
+    "@tessera/runtime": "0.1.0",
+    "@tessera/stream": "0.1.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  }
+}

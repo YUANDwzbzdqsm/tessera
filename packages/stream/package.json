@@ -1,0 +1,14 @@
+{
+  "name": "@tessera/stream",
+  "version": "0.1.0",
+  "description": "Streaming for Tessera: patch protocol and SSE encoding (isomorphic), plus a streaming compiler for the server.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./server": "./src/server.ts"
+  },
+  "dependencies": {
+    "@tessera/catalog": "0.1.0",
+    "@tessera/lang": "0.1.0"
+  }
+}
