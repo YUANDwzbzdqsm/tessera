@@ -5,7 +5,8 @@
 import 'ses';
 import { parentPort, workerData } from 'node:worker_threads';
 
-lockdown({ errorTaming: 'unsafe', consoleTaming: 'unsafe', overrideTaming: 'severe' });
+// Same as packages/runtime/src/lockdown-options.ts (this file runs in plain Node, without the TypeScript build).
+lockdown({ errorTaming: 'unsafe', consoleTaming: 'unsafe', overrideTaming: 'severe', localeTaming: 'unsafe' });
 
 const { code, constants, data } = workerData;
 const FRAGMENT = Symbol('Fragment');

@@ -2,12 +2,12 @@ import 'ses';
 import { defineCatalog } from '@tessera/catalog';
 import { compile } from '@tessera/lang';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { LOCKDOWN_OPTIONS } from '../src/lockdown-options';
 import { createCompartment, createSafe, createUi, evaluateProgram, instantiate, loadProgram, type Endowments } from '../src/program';
 import type { Action, RuntimeIssue } from '../src/protocol';
 
 beforeAll(() => {
-  // Same options as the worker entry.
-  lockdown({ errorTaming: 'unsafe', consoleTaming: 'unsafe', overrideTaming: 'severe' });
+  lockdown(LOCKDOWN_OPTIONS);
 });
 
 interface El {
@@ -123,6 +123,13 @@ describe('the compartment boundary', () => {
     // A different program in the same compartment still sees no host capabilities.
     const probe = evaluateProgram('(function () { return function () { return typeof fetch; }; })', compartment);
     expect(instantiate(probe, [], {}, endowments)()).toBe('undefined');
+  });
+
+  it('formats numbers and compares strings with the locale', () => {
+    // Under the default localeTaming these return 1234.5678 and a code-unit order (found trying a DeepSeek chat).
+    const { endowments } = setup();
+    const src = '{(1234.5678).toLocaleString("en-US", { maximumFractionDigits: 2 })} {["b", "a", "C"].sort((x, y) => x.localeCompare(y, "en")).join("")}';
+    expect(text(loadProgram(compile(src, { catalog: defineCatalog() }), endowments)())).toBe('1,234.57 abC');
   });
 
   it('rejects code that is not a program', () => {

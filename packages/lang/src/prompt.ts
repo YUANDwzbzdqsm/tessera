@@ -22,6 +22,7 @@ Syntax
 - {@let price = seats * 29} declares a derived value. Also on its own line at the top level, after what it uses.
 - {expression} inserts a value into text. Expressions are JavaScript: arithmetic, comparisons, ternaries, template strings,
   array methods and arrow functions. No assignment, no new, no loops, no this.
+  Format numbers for people: round money and percentages ({pay.toFixed(2)}, {Math.round(total).toLocaleString()}).
 - {#if cond} … {:else if other} … {:else} … {/if} renders conditionally.
 - {#each items as item, i} … {/each} repeats content.
 - ui.send("text") sends a new message from the user; ui.copy("text") copies text; ui.open("https://…") opens a link.

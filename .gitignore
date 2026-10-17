@@ -3,3 +3,4 @@ dist/
 .e2e/
 *.log
 eval/results/
+.env*.local

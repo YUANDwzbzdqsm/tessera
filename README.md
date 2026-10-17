@@ -74,6 +74,29 @@ SSE：event: patch  data: {seq, kind, ops}  ← 代码只发变化的那一段�
 
 **写到一半也能编译。** 末尾不完整的结构（没闭合的 `{`、没有 `>` 的标签）直接丢弃；已经有内容的未闭合元素自动闭合，空的直接丢弃。每处修补都会记成诊断。所以 M2 只需要对前缀反复调用 `compile()`。
 
+## 试用：接 DeepSeek 的聊天页
+
+`npm run dev` 之后打开 http://localhost:5180/chat.html，就是一个最简单的聊天机器人：
+
+- 每条回复都从 `/api/chat` 流式返回，一边生成一边渲染成界面。
+- 按钮里的 `ui.send()` 会直接发出下一条消息。
+- 界面状态（滑块位置、勾选、答题结果）和对话记录存在浏览器里，刷新后还在。
+- 每条回复下面可以展开模型写的源码和诊断。
+
+开发服务器在服务端读取 key，页面拿不到：
+
+```bash
+# 环境变量里已有 DEEPSEEK_API_KEY 就不用配置；也可以写进 demo/.env.local（已在 .gitignore 里）
+DEEPSEEK_API_KEY=...
+DEEPSEEK_MODEL=deepseek-flash              # 可选，默认 deepseek-flash
+DEEPSEEK_BASE_URL=https://api.deepseek.com # 可选；任何 OpenAI 兼容接口都可以
+```
+
+服务端逻辑在 `demo/src/server/chat.ts`，约 60 行：
+- 拼上 `systemPrompt(catalog)` 和最近 20 条对话（助手消息发回的是它写的 Tessera 源码）。
+- 只把模型的正文交给 `createSSEStream`，推理内容不转发。
+- 图片用的是演示里的本地占位图解析器，不会调用外部搜索。
+
 ## 在应用里使用
 
 ```tsx
@@ -280,6 +303,7 @@ npm run eval -- --base-url https://ark.cn-beijing.volces.com/api/v3 --model doub
 
 - **SES 必须用 `overrideTaming: 'severe'`。** Preact 用 for-in 复制 vnode，而 vnode 自带一个 `constructor` 属性；复制到普通对象上时会撞上被冻结的 `Object.prototype.constructor`（SES 文档里叫 override mistake）。改成 `moderate` 时第一帧就会报错。
 - **元素的 props 作为一个对象过桥。** Worker 把每个元素声明过的 props 打包成一个 `props` 对象，作为唯一的远端属性传给宿主。不这样做的话，Preact 删除一个 prop 时会赋值 `''`，宿主收到的就是一个类型不对的值；Preact 还会把 `width`、`href` 这类名字当作字符串属性处理。结构相同的 props 复用同一个冻结对象，所以流式重编译时没变的元素不会产生更新。
+- **SES 用 `localeTaming: 'unsafe'`。** 默认的 `'safe'` 会把 `toLocaleString` 换成 `toString`，把 `localeCompare` 换成按码元比较，所以模型写的 `x.toLocaleString('zh-CN', { maximumFractionDigits: 2 })` 会原样输出 `4490.446878088235`，中文排序也会出错。这个问题是在 DeepSeek 聊天页里试出来的。locale 驯化的目的是确定性和隐藏宿主的地区设置，不是隔离边界，所以关掉它不会让程序多碰到任何东西。lockdown 的配置统一放在 `packages/runtime/src/lockdown-options.ts`，Worker 和沙箱测试都用这一份。
 - **SES 2.3 不认识 Chrome 新加的 Iterator helpers**，会在控制台提示移除 `%IteratorPrototype%.join` / `includes`。这是预期行为，不影响程序。
 - **state 按名字存在 Worker 里，每个 `TesseraView` 一份。** 同一个视图换一段源码，同名 state 会保留：编辑源码时价格不归零就是靠这一点。聊天场景里每条消息各有一个视图，不会串。
 - **演示的流式接口只在 `npm run dev` 下可用。** 它是 Vite 开发服务器里的一个中间件，通过 `ssrLoadModule` 直接加载 TypeScript 源码；静态构建没有后端。真实应用里换成你自己的服务端路由，调用 `createSSEStream` 即可。
@@ -299,7 +323,7 @@ npm run eval -- --base-url https://ark.cn-beijing.volces.com/api/v3 --model doub
 
 ```bash
 npm install
-npm run dev          # 演示页 http://localhost:5180（含流式接口）；?isolation=worker 切换到纯 Worker 模式
+npm run dev          # 演示页 http://localhost:5180（含流式接口）；?isolation=worker 切换到纯 Worker 模式；/chat.html 是接 DeepSeek 的聊天页
 npm run build:sandbox # 重新构建预构建的沙箱 Worker
 npm run check        # 类型检查 + 单元测试 + SES 沙箱测试
 npm run e2e          # 用本机 Chrome 跑端到端检查（CHROME_PATH 可覆盖路径）：
@@ -307,7 +331,7 @@ npm run e2e          # 用本机 Chrome 跑端到端检查（CHROME_PATH 可覆�
 npm run eval -- …    # 用真实模型跑基准提示（见“评测（M5）”）
 ```
 
-当前结果：类型检查通过；单元测试 92 项、SES 沙箱测试 8 项、端到端检查 26 项全部通过。端到端截图在 `.e2e/demo.png`。
+当前结果：类型检查通过；单元测试 92 项、SES 沙箱测试 9 项、端到端检查 26 项全部通过。端到端截图在 `.e2e/demo.png`。
 
 M4 相关的关键检查：
 - 商品对比里的价格来自 data 表，编译结果里没有价格。

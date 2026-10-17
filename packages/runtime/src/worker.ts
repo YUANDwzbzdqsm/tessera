@@ -4,19 +4,11 @@
 import '@remote-dom/core/polyfill';
 import 'ses';
 import { ThreadMessagePort } from '@quilted/threads';
+import { LOCKDOWN_OPTIONS } from './lockdown-options';
 import type { PortHandoff, RuntimeApi } from './protocol';
 import { createRuntime } from './runtime';
 
-lockdown({
-  // Keep readable errors and console output while this is a development milestone.
-  errorTaming: 'unsafe',
-  consoleTaming: 'unsafe',
-  stackFiltering: 'verbose',
-  // Preact copies vnodes with a for-in assign, and vnodes carry an own `constructor` key. Assigning that onto a
-  // plain object hits the frozen Object.prototype.constructor (the "override mistake"); 'severe' makes every
-  // Object.prototype property overridable so the copy works.
-  overrideTaming: 'severe',
-});
+lockdown(LOCKDOWN_OPTIONS);
 
 // The host (directly, or through the sandbox iframe) hands over one MessagePort and talks only through it.
 // Anything else posted to the worker is ignored, and only the first handoff is accepted.

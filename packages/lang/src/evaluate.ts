@@ -411,7 +411,7 @@ function stringMethod(s: string, name: string, a: unknown[]): unknown {
 }
 
 function numberMethod(n: number, name: string, a: unknown[]): unknown {
-  if (name === 'toFixed' || name === 'toPrecision' || name === 'toString') return (n as any)[name](...a);
+  if (name === 'toFixed' || name === 'toPrecision' || name === 'toString' || name === 'toLocaleString') return (n as any)[name](...a);
   throw new Unsupported(`number.${name}`);
 }
 
