@@ -1,0 +1,4 @@
+# Built pages and screenshots. Rebuild with `npm run walkthrough`.
+*/tessera-ep*.html
+sse-anim/sse-patches.html
+shots/

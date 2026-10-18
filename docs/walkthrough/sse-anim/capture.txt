@@ -1,0 +1,81 @@
+event: patch
+data: {"seq":0,"kind":"structure","ops":[{"op":"append","path":"/text","value":"##"},{"op":"replace","path":"/code","value":"(function (__h, __F, __ui, __C, __safe, __D) {\n  \"use strict\";\n  const ui = __ui.api;\n  return function TesseraProgram() {\n    return __h(__F, null, __h(\"Text\", null, __C[0]));\n  };\n})"},{"op":"add","path":"/constants/-","value":"##"}]}
+
+event: patch
+data: {"seq":1,"kind":"structure","ops":[{"op":"append","path":"/text","value":" 你好，"},{"op":"splice","path":"/code","start":155,"remove":10,"value":"itle\", { \"size\": \"lg\" }"},{"op":"replace","path":"/constants/0","value":"你好，"}]}
+
+event: patch
+data: {"seq":2,"kind":"constants","ops":[{"op":"append","path":"/text","value":"这是一个会动"},{"op":"append","path":"/constants/0","value":"这是一个会动"}]}
+
+event: patch
+data: {"seq":3,"kind":"constants","ops":[{"op":"append","path":"/text","value":"的界面\n{@"},{"op":"append","path":"/constants/0","value":"的界面"},{"op":"replace","path":"/diagnostics","value":[{"code":"unterminated_expression","message":"Unclosed { … }; the rest of the source was dropped","pos":16,"severity":"warning"}]}]}
+
+event: patch
+data: {"seq":4,"kind":"text","ops":[{"op":"append","path":"/text","value":"state n ="}]}
+
+event: patch
+data: {"seq":5,"kind":"structure","ops":[{"op":"append","path":"/text","value":" 3}\n<"},{"op":"splice","path":"/code","start":127,"remove":58,"value":"const [n, setN] = __ui.useState(\"n\", () => __safe(() => (3), undefined));\n    return __h(__F, null, __h(\"Title\", { \"size\": \"lg\" }, __C[0]), __h(\"Text\", null, __C[1"},{"op":"add","path":"/constants/-","value":"<"},{"op":"replace","path":"/diagnostics","value":[]}]}
+
+event: patch
+data: {"seq":6,"kind":"structure","ops":[{"op":"append","path":"/text","value":"Slider min"},{"op":"splice","path":"/code","start":265,"remove":27,"value":""},{"op":"replace","path":"/constants","value":["你好，这是一个会动的界面"]},{"op":"replace","path":"/diagnostics","value":[{"code":"unterminated_tag","message":"Tag without >; the rest of the source was dropped","pos":31,"severity":"warning"}]}]}
+
+event: patch
+data: {"seq":7,"kind":"text","ops":[{"op":"append","path":"/text","value":"={1}"}]}
+
+event: patch
+data: {"seq":8,"kind":"text","ops":[{"op":"append","path":"/text","value":" max={"}]}
+
+event: patch
+data: {"seq":9,"kind":"text","ops":[{"op":"append","path":"/text","value":"9}"}]}
+
+event: patch
+data: {"seq":10,"kind":"text","ops":[{"op":"append","path":"/text","value":" value={n"}]}
+
+event: patch
+data: {"seq":11,"kind":"text","ops":[{"op":"append","path":"/text","value":"}"}]}
+
+event: patch
+data: {"seq":12,"kind":"text","ops":[{"op":"append","path":"/text","value":" onChange={"}]}
+
+event: patch
+data: {"seq":13,"kind":"text","ops":[{"op":"append","path":"/text","value":"setN}"}]}
+
+event: patch
+data: {"seq":14,"kind":"text","ops":[{"op":"append","path":"/text","value":" label=\"选一"}]}
+
+event: patch
+data: {"seq":15,"kind":"structure","ops":[{"op":"append","path":"/text","value":"个数\" />"},{"op":"splice","path":"/code","start":265,"remove":0,"value":", __h(\"Slider\", { \"min\": __safe(() => (1), undefined), \"max\": __safe(() => (9), undefined), \"value\": __safe(() => (n), undefined), \"onChange\": __safe(() => (setN), undefined), \"label\": \"选一个数\" })"},{"op":"replace","path":"/diagnostics","value":[]}]}
+
+event: patch
+data: {"seq":16,"kind":"structure","ops":[{"op":"append","path":"/text","value":"\n现在是"},{"op":"splice","path":"/code","start":459,"remove":0,"value":", __h(\"Text\", null, __C[1])"},{"op":"add","path":"/constants/-","value":"现在是"}]}
+
+event: patch
+data: {"seq":17,"kind":"constants","ops":[{"op":"append","path":"/text","value":" **{n"},{"op":"append","path":"/constants/1","value":" **"},{"op":"replace","path":"/diagnostics","value":[{"code":"unterminated_expression","message":"Unclosed { … }; the rest of the source was dropped","pos":103,"severity":"warning"}]}]}
+
+event: patch
+data: {"seq":18,"kind":"structure","ops":[{"op":"append","path":"/text","value":"}**\n<"},{"op":"splice","path":"/code","start":485,"remove":0,"value":", __h(\"Bold\", null, __ui.value(__safe(() => (n), null))), __C[2]"},{"op":"replace","path":"/constants/1","value":"现在是 "},{"op":"add","path":"/constants/-","value":"\n<"},{"op":"replace","path":"/diagnostics","value":[]}]}
+
+event: patch
+data: {"seq":19,"kind":"structure","ops":[{"op":"append","path":"/text","value":"Image"},{"op":"splice","path":"/code","start":541,"remove":8,"value":""},{"op":"replace","path":"/constants","value":["你好，这是一个会动的界面","现在是 "]},{"op":"replace","path":"/diagnostics","value":[{"code":"unterminated_tag","message":"Tag without >; the rest of the source was dropped","pos":109,"severity":"warning"}]}]}
+
+event: patch
+data: {"seq":20,"kind":"text","ops":[{"op":"append","path":"/text","value":" query=\"小熊"}]}
+
+event: patch
+data: {"seq":21,"kind":"text","ops":[{"op":"append","path":"/text","value":"猫\""}]}
+
+event: patch
+data: {"seq":22,"kind":"text","ops":[{"op":"append","path":"/text","value":" aspect=\""}]}
+
+event: patch
+data: {"seq":23,"kind":"text","ops":[{"op":"append","path":"/text","value":"16:9"}]}
+
+event: patch
+data: {"seq":24,"kind":"structure","ops":[{"op":"append","path":"/text","value":"\" />"},{"op":"splice","path":"/code","start":542,"remove":0,"value":", __h(\"Image\", { \"query\": \"小熊猫\", \"aspect\": \"16:9\", \"resolved\": __safe(() => __D[\"resolve:image:e2c32586\"], undefined) })"},{"op":"replace","path":"/diagnostics","value":[]}]}
+
+event: patch
+data: {"seq":25,"kind":"data","ops":[{"op":"add","path":"/data/resolve:image:e2c32586","value":{"url":"data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22480%22%20height%3D%22270%22%20viewBox%3D%220%200%20480%20270%22%3E%0A%3Crect%20width%3D%22480%22%20height%3D%22270%22%20fill%3D%22hsl(216%2045%25%2088%25)%22%2F%3E%0A%3Ccircle%20cx%3D%22345.59999999999997%22%20cy%3D%22102.6%22%20r%3D%2259.4%22%20fill%3D%22hsl(256%2050%25%2070%25)%22%2F%3E%0A%3Crect%20x%3D%2257.599999999999994%22%20y%3D%22148.5%22%20width%3D%22220.8%22%20height%3D%2254%22%20rx%3D%2212%22%20fill%3D%22hsl(56%2035%25%2060%25)%22%2F%3E%0A%3Ctext%20x%3D%22240%22%20y%3D%22248%22%20text-anchor%3D%22middle%22%20font-family%3D%22sans-serif%22%20font-size%3D%2218%22%20fill%3D%22hsl(216%2040%25%2025%25)%22%3E%E5%B0%8F%E7%86%8A%E7%8C%AB%3C%2Ftext%3E%0A%3C%2Fsvg%3E","title":"小熊猫","source":"演示图库（本地生成的占位图）"}}]}
+
+event: patch
+data: {"seq":26,"kind":"final","ops":[{"op":"replace","path":"/fallback","value":"## 你好，这是一个会动的界面\n\n选一个数: 3 (1–9)\n\n现在是 **3**\n\n![小熊猫](data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22480%22%20height%3D%22270%22%20viewBox%3D%220%200%20480%20270%22%3E%0A%3Crect%20width%3D%22480%22%20height%3D%22270%22%20fill%3D%22hsl(216%2045%25%2088%25)%22%2F%3E%0A%3Ccircle%20cx%3D%22345.59999999999997%22%20cy%3D%22102.6%22%20r%3D%2259.4%22%20fill%3D%22hsl(256%2050%25%2070%25)%22%2F%3E%0A%3Crect%20x%3D%2257.599999999999994%22%20y%3D%22148.5%22%20width%3D%22220.8%22%20height%3D%2254%22%20rx%3D%2212%22%20fill%3D%22hsl(56%2035%25%2060%25)%22%2F%3E%0A%3Ctext%20x%3D%22240%22%20y%3D%22248%22%20text-anchor%3D%22middle%22%20font-family%3D%22sans-serif%22%20font-size%3D%2218%22%20fill%3D%22hsl(216%2040%25%2025%25)%22%3E%E5%B0%8F%E7%86%8A%E7%8C%AB%3C%2Ftext%3E%0A%3C%2Fsvg%3E)"},{"op":"replace","path":"/done","value":true}]}
+

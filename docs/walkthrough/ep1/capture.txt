@@ -1,0 +1,45 @@
+event: patch
+data: {"seq":0,"kind":"structure","ops":[{"op":"append","path":"/text","value":"##"},{"op":"replace","path":"/code","value":"(function (__h, __F, __ui, __C, __safe, __D) {\n  \"use strict\";\n  const ui = __ui.api;\n  return function TesseraProgram() {\n    return __h(__F, null, __h(\"Text\", null, __C[0]));\n  };\n})"},{"op":"add","path":"/constants/-","value":"##"}]}
+
+event: patch
+data: {"seq":1,"kind":"structure","ops":[{"op":"append","path":"/text","value":" 你好\n{@"},{"op":"splice","path":"/code","start":155,"remove":10,"value":"itle\", { \"size\": \"lg\" }"},{"op":"replace","path":"/constants/0","value":"你好"},{"op":"replace","path":"/diagnostics","value":[{"code":"unterminated_expression","message":"Unclosed { … }; the rest of the source was dropped","pos":6,"severity":"warning"}]}]}
+
+event: patch
+data: {"seq":2,"kind":"text","ops":[{"op":"append","path":"/text","value":"state n ="}]}
+
+event: patch
+data: {"seq":3,"kind":"structure","ops":[{"op":"append","path":"/text","value":" 3}\n<"},{"op":"splice","path":"/code","start":127,"remove":58,"value":"const [n, setN] = __ui.useState(\"n\", () => __safe(() => (3), undefined));\n    return __h(__F, null, __h(\"Title\", { \"size\": \"lg\" }, __C[0]), __h(\"Text\", null, __C[1"},{"op":"add","path":"/constants/-","value":"<"},{"op":"replace","path":"/diagnostics","value":[]}]}
+
+event: patch
+data: {"seq":4,"kind":"structure","ops":[{"op":"append","path":"/text","value":"Slider"},{"op":"splice","path":"/code","start":265,"remove":27,"value":""},{"op":"replace","path":"/constants","value":["你好"]},{"op":"replace","path":"/diagnostics","value":[{"code":"unterminated_tag","message":"Tag without >; the rest of the source was dropped","pos":21,"severity":"warning"}]}]}
+
+event: patch
+data: {"seq":5,"kind":"text","ops":[{"op":"append","path":"/text","value":" min={1}"}]}
+
+event: patch
+data: {"seq":6,"kind":"text","ops":[{"op":"append","path":"/text","value":" max={9}"}]}
+
+event: patch
+data: {"seq":7,"kind":"text","ops":[{"op":"append","path":"/text","value":" value={"}]}
+
+event: patch
+data: {"seq":8,"kind":"text","ops":[{"op":"append","path":"/text","value":"n}"}]}
+
+event: patch
+data: {"seq":9,"kind":"text","ops":[{"op":"append","path":"/text","value":" onChange"}]}
+
+event: patch
+data: {"seq":10,"kind":"text","ops":[{"op":"append","path":"/text","value":"={"}]}
+
+event: patch
+data: {"seq":11,"kind":"structure","ops":[{"op":"append","path":"/text","value":"setN} />"},{"op":"splice","path":"/code","start":265,"remove":0,"value":", __h(\"Slider\", { \"min\": __safe(() => (1), undefined), \"max\": __safe(() => (9), undefined), \"value\": __safe(() => (n), undefined), \"onChange\": __safe(() => (setN), undefined) })"},{"op":"replace","path":"/diagnostics","value":[]}]}
+
+event: patch
+data: {"seq":12,"kind":"structure","ops":[{"op":"append","path":"/text","value":"\n现在是"},{"op":"splice","path":"/code","start":442,"remove":0,"value":", __h(\"Text\", null, __C[1])"},{"op":"add","path":"/constants/-","value":"现在是"}]}
+
+event: patch
+data: {"seq":13,"kind":"structure","ops":[{"op":"append","path":"/text","value":" {n}"},{"op":"splice","path":"/code","start":468,"remove":0,"value":", __ui.value(__safe(() => (n), null))"},{"op":"append","path":"/constants/1","value":" "}]}
+
+event: patch
+data: {"seq":14,"kind":"final","ops":[{"op":"replace","path":"/fallback","value":"## 你好\n\nValue: 3 (1–9)\n\n现在是 3"},{"op":"replace","path":"/done","value":true}]}
+

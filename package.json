@@ -15,7 +15,8 @@
     "e2e": "node scripts/e2e.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check": "npm run typecheck && npm test && npm run test:sandbox",
-    "eval": "node scripts/eval.mjs"
+    "eval": "node scripts/eval.mjs",
+    "walkthrough": "node docs/walkthrough/build-all.mjs"
   },
   "devDependencies": {
     "@types/node": "22.20.5",

@@ -1,0 +1,696 @@
+<title>SSE 补丁回放</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@700&display=swap">
+<style>
+/* Layout: three stations side by side, wire → document → screen, under one control bar and a narration line.
+   Each patch op has its own color, used for its badge, the field it touches and the inserted text. */
+:root {
+  --bg: #f1f3f5;
+  --surface: #ffffff;
+  --sunken: #e8ecef;
+  --fg: #18212b;
+  --muted: #5b6773;
+  --line: #d5dbe1;
+  --op-append: #2c7a4b;
+  --op-append-bg: #dcefe2;
+  --op-splice: #a8610f;
+  --op-splice-bg: #f6e5cf;
+  --op-replace: #2a5fb0;
+  --op-replace-bg: #dde7f7;
+  --op-add: #7346a8;
+  --op-add-bg: #eadff6;
+  --del: #b2342f;
+  --del-bg: #f7dcda;
+  --f-display: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
+  --f-body: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --f-code: 'IBM Plex Mono', 'Cascadia Mono', Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1217;
+    --surface: #141c24;
+    --sunken: #1b252f;
+    --fg: #e3e8ed;
+    --muted: #8e9aa6;
+    --line: #27323d;
+    --op-append: #6cc893;
+    --op-append-bg: #183424;
+    --op-splice: #f0ad5b;
+    --op-splice-bg: #3a2914;
+    --op-replace: #84aef0;
+    --op-replace-bg: #1a2a45;
+    --op-add: #bb97ec;
+    --op-add-bg: #2e2143;
+    --del: #f0847e;
+    --del-bg: #43201e;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1217;
+  --surface: #141c24;
+  --sunken: #1b252f;
+  --fg: #e3e8ed;
+  --muted: #8e9aa6;
+  --line: #27323d;
+  --op-append: #6cc893;
+  --op-append-bg: #183424;
+  --op-splice: #f0ad5b;
+  --op-splice-bg: #3a2914;
+  --op-replace: #84aef0;
+  --op-replace-bg: #1a2a45;
+  --op-add: #bb97ec;
+  --op-add-bg: #2e2143;
+  --del: #f0847e;
+  --del-bg: #43201e;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 14.5px; line-height: 1.6; }
+button, select { font: inherit; color: inherit; }
+button:focus-visible, select:focus-visible, .tick:focus-visible { outline: 2px solid var(--op-replace); outline-offset: 2px; }
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 26px 48px;
+  display: grid;
+  gap: 18px;
+}
+.mono { font-family: var(--f-code); }
+
+/* Header and legend */
+.head { display: grid; gap: 4px; }
+.eyebrow { margin: 0; font-size: 12.5px; letter-spacing: 0.08em; color: var(--muted); }
+h1 { margin: 0; font-family: var(--f-display); font-size: clamp(22px, 3vw, 30px); line-height: 1.3; text-wrap: balance; }
+.lede { margin: 0; color: var(--muted); max-width: 70ch; }
+.legend { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.opcard { display: grid; gap: 4px; align-content: start; padding: 10px 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); border-top: 3px solid var(--c); text-align: left; cursor: pointer; }
+.opcard:hover { background: var(--cbg); }
+.opcard .nm { font-family: var(--f-code); font-weight: 500; color: var(--c); }
+.opcard .ds { font-size: 13px; }
+.opcard .ex { font-size: 12px; color: var(--muted); }
+.op-append { --c: var(--op-append); --cbg: var(--op-append-bg); }
+.op-splice { --c: var(--op-splice); --cbg: var(--op-splice-bg); }
+.op-replace { --c: var(--op-replace); --cbg: var(--op-replace-bg); }
+.op-add { --c: var(--op-add); --cbg: var(--op-add-bg); }
+
+/* Controls */
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; position: sticky; top: env(safe-area-inset-top, 0px); z-index: 2; background: var(--bg); padding-block: 8px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-size: 14px; }
+.btn svg { width: 14px; height: 14px; }
+.btn.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); min-width: 76px; justify-content: center; }
+.ticks { flex: 1 1 320px; display: flex; gap: 2px; min-width: 0; align-items: flex-end; height: 30px; }
+.tick { flex: 1 1 0; min-width: 0; height: 12px; border-radius: 3px; border: 0; padding: 0; cursor: pointer; background: var(--line); position: relative; }
+.tick.k-structure { background: var(--op-replace); height: 20px; }
+.tick.k-constants { background: var(--op-append); height: 16px; }
+.tick.k-text { background: var(--line); height: 10px; }
+.tick.k-data { background: var(--op-add); height: 20px; }
+.tick.k-final { background: var(--fg); height: 20px; }
+.tick.future { opacity: 0.35; }
+.tick.now { outline: 2px solid var(--fg); outline-offset: 1px; }
+.counter { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 96px; }
+.bar select { padding: 4px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); }
+.bar label { font-size: 13px; color: var(--muted); display: inline-flex; gap: 4px; align-items: center; }
+.narration { margin: 0; padding: 10px 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--c, var(--fg)); min-height: 3.4em; font-size: 15.5px; }
+.narration b { font-family: var(--f-code); font-weight: 500; color: var(--c, var(--fg)); }
+.narration q { font-family: var(--f-code); font-size: 13.5px; background: var(--sunken); border-radius: 4px; padding: 0 4px; quotes: none; overflow-wrap: anywhere; }
+
+/* The three stations */
+.stations { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 0.9fr); gap: 14px; align-items: start; }
+.station { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px 14px; display: grid; gap: 10px; min-width: 0; }
+.st-head { display: flex; align-items: baseline; gap: 8px; }
+.st-head h2 { margin: 0; font-size: 15px; }
+.st-head small { color: var(--muted); font-size: 12.5px; }
+.arrowhint { color: var(--muted); }
+
+/* Wire */
+.fc { display: grid; gap: 8px; }
+.fc.enter { animation: slide-in 0.5s ease-out; }
+.fc-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; font-size: 13px; color: var(--muted); }
+.fc-head b { color: var(--fg); font-size: 15px; }
+.kind { font-family: var(--f-code); font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--sunken); color: var(--fg); }
+.kind.k-structure { background: var(--op-replace-bg); color: var(--op-replace); }
+.kind.k-constants { background: var(--op-append-bg); color: var(--op-append); }
+.kind.k-data { background: var(--op-add-bg); color: var(--op-add); }
+.kind.k-final { background: var(--fg); color: var(--bg); }
+.raw { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--sunken); font-family: var(--f-code); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; max-height: 150px; overflow: auto; color: var(--muted); }
+.raw .k { color: var(--fg); font-weight: 500; }
+.ops { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.oprow { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: baseline; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); transition: opacity 0.2s, background-color 0.2s; }
+.oprow .badge { font-family: var(--f-code); font-size: 12px; font-weight: 500; padding: 0 7px; border-radius: 5px; background: var(--cbg); color: var(--c); }
+.oprow .path { font-family: var(--f-code); font-size: 12.5px; overflow-wrap: anywhere; }
+.oprow .val { grid-column: 2; font-family: var(--f-code); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.oprow.pending { opacity: 0.55; }
+.oprow.now { border-color: var(--c); background: var(--cbg); opacity: 1; }
+.oprow.done .badge::after { content: ' ✓'; }
+.kindnote { margin: 0; font-size: 13px; color: var(--muted); }
+
+/* Document */
+.doc { display: grid; gap: 8px; }
+.field { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; align-items: start; padding: 6px 8px; border-radius: 8px; border: 1px solid transparent; transition: border-color 0.3s, background-color 0.3s; }
+.fname { font-family: var(--f-code); font-size: 13px; font-weight: 500; padding-top: 1px; }
+.fname small { display: block; font-family: var(--f-body); font-weight: 400; font-size: 11.5px; color: var(--muted); }
+.fval { min-width: 0; font-family: var(--f-code); font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.fval.empty { color: var(--muted); font-family: var(--f-body); }
+.nl { color: var(--muted); }
+.codebox { max-height: 210px; overflow: auto; padding: 6px 8px; border-radius: 6px; background: var(--sunken); font-size: 11.5px; line-height: 1.55; }
+.field.touch { border-color: var(--c); background: var(--cbg); }
+.ins { background: var(--cbg); color: var(--c); border-radius: 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.ins.fade { animation: fade-in 0.5s ease-out; }
+.del { background: var(--del-bg); color: var(--del); text-decoration: line-through; border-radius: 3px; transition: opacity 0.35s; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.del.gone { opacity: 0; }
+.caret { display: inline-block; width: 2px; height: 1.2em; vertical-align: text-bottom; background: var(--op-splice); animation: blink 0.6s steps(2) infinite; }
+.old { text-decoration: line-through; opacity: 0.35; transition: opacity 0.35s; }
+.chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.chips li { display: inline-flex; gap: 6px; align-items: baseline; padding: 2px 8px; border-radius: 6px; background: var(--sunken); max-width: 100%; }
+.chips .ix { font-size: 11px; color: var(--muted); }
+.chips .cv { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.chips li.enter { animation: pop-in 0.5s ease-out; background: var(--op-add-bg); }
+.diag { display: grid; gap: 2px; }
+.diag span { font-size: 12px; }
+.diag .w { color: var(--op-splice); }
+.datarow { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.datarow img { width: 64px; height: 36px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
+.datarow.enter { animation: pop-in 0.5s ease-out; }
+.datarow code { font-size: 11.5px; overflow-wrap: anywhere; min-width: 0; }
+.bool { display: inline-block; padding: 0 8px; border-radius: 999px; background: var(--sunken); }
+.bool.true { background: var(--fg); color: var(--bg); }
+
+/* Screen */
+.device { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--bg); min-height: 180px; display: grid; gap: 10px; align-content: start; transition: box-shadow 0.4s; }
+.device.flash { box-shadow: 0 0 0 3px var(--op-replace); }
+.device.still { box-shadow: 0 0 0 3px var(--line); }
+.device .empty { color: var(--muted); font-size: 13px; }
+.s-title { margin: 0; font-size: 19px; font-weight: 700; line-height: 1.35; }
+.s-text { margin: 0; white-space: pre-wrap; }
+.s-slider { display: grid; gap: 4px; }
+.s-slider .lbl { font-size: 13px; color: var(--muted); }
+.s-slider .row { display: flex; align-items: center; gap: 10px; }
+.s-slider .track { position: relative; flex: 1; height: 6px; border-radius: 999px; background: var(--line); }
+.s-slider .fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--op-replace); }
+.s-slider .thumb { position: absolute; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: var(--surface); border: 2px solid var(--op-replace); }
+.s-slider .num { font-family: var(--f-code); font-size: 13px; min-width: 1.5em; text-align: right; }
+.s-image { margin: 0; border-radius: 8px; overflow: hidden; background: var(--sunken); display: grid; place-items: center; color: var(--muted); font-size: 13px; max-width: 100%; }
+.s-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.screennote { margin: 0; font-size: 13px; color: var(--muted); }
+
+.foot { color: var(--muted); font-size: 13px; margin: 0; max-width: 80ch; }
+
+@keyframes slide-in { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: none; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop-in { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: none; } }
+@keyframes blink { to { visibility: hidden; } }
+
+@media (max-width: 980px) {
+  .stations { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .station.screen { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) {
+  .legend { grid-template-columns: 1fr 1fr; }
+  .stations { grid-template-columns: 1fr; }
+  .field { grid-template-columns: 1fr; gap: 2px; }
+  .arrowhint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fc.enter, .ins.fade, .chips li.enter, .datarow.enter { animation: none; }
+  .caret { animation: none; }
+}
+</style>
+
+<div class="page">
+  <header class="head">
+    <p class="eyebrow">TESSERA 代码导读 · 番外</p>
+    <h1>SSE 补丁是怎么一步步拼出界面的</h1>
+    <p class="lede">这是开发服务器真实发出的一条流：27 帧，56 个操作。每一帧到达后，浏览器按顺序执行里面的操作，修改它手里的文档；代码一变，沙箱就重画屏幕。按播放看完整过程，或者点下面的卡片，单独看某种操作。</p>
+  </header>
+
+  <div class="legend" id="legend"></div>
+
+  <div class="bar">
+    <button class="btn primary" id="playBtn" type="button" aria-label="播放或暂停（空格）">播放</button>
+    <button class="btn" id="prevBtn" type="button" aria-label="上一步（左方向键）">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 3 5 8l5.5 5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>上一步
+    </button>
+    <button class="btn" id="nextBtn" type="button" aria-label="下一步（右方向键）">下一步
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3 11 8l-5.5 5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+    </button>
+    <div class="ticks" id="ticks" aria-label="帧，点击跳转"></div>
+    <span class="counter" id="counter"></span>
+    <label for="speed">速度 <select id="speed">
+      <option value="0.5">0.5×</option>
+      <option value="1" selected>1×</option>
+      <option value="2">2×</option>
+    </select></label>
+  </div>
+
+  <p class="narration" id="narration" aria-live="polite"></p>
+
+  <div class="stations">
+    <section class="station wire" aria-label="网线上收到的帧">
+      <div class="st-head"><h2>① 网线上收到</h2><small id="wireSub"></small><span class="arrowhint">→</span></div>
+      <div id="wire"></div>
+    </section>
+    <section class="station" aria-label="浏览器里的文档">
+      <div class="st-head"><h2>② 浏览器里的文档</h2><small>服务器手里有一模一样的一份</small><span class="arrowhint">→</span></div>
+      <div class="doc" id="doc"></div>
+    </section>
+    <section class="station screen" aria-label="屏幕">
+      <div class="st-head"><h2>③ 屏幕上</h2><small>沙箱运行 code 画出来的</small></div>
+      <div class="device" id="device"></div>
+      <p class="screennote" id="screenNote"></p>
+    </section>
+  </div>
+
+  <p class="foot">模型写的原文是：<span class="mono">## 你好，这是一个会动的界面 / {@state n = 3} / &lt;Slider … label="选一个数" /&gt; / 现在是 **{n}** / &lt;Image query="小熊猫" … /&gt;</span>。图片来自演示里的本地占位图解析器。帧和操作都是从 <span class="mono">POST /api/stream</span> 原样抓下来的，没有改动；右边的屏幕是在每一帧之后真正运行一遍程序得到的。</p>
+</div>
+
+<script>
+const DATA = /*__DATA__*/null;
+const steps = DATA.steps;
+const $ = (id) => document.getElementById(id);
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+// ---------- the document model (same rules as packages/stream/src/patch.ts) ----------
+const EMPTY = { text: '', code: '', constants: [], data: {}, diagnostics: [], done: false };
+function applyOps(doc, ops) {
+  const next = structuredClone(doc);
+  for (const op of ops) {
+    const parts = op.path.split('/').slice(1).map((p) => p.replace(/~1/g, '/').replace(/~0/g, '~'));
+    const key = parts.pop();
+    let target = next;
+    for (const p of parts) target = target[p];
+    if (op.op === 'append') target[key] += op.value;
+    else if (op.op === 'splice') target[key] = target[key].slice(0, op.start) + op.value + target[key].slice(op.start + op.remove);
+    else if (op.op === 'replace') target[key] = op.value;
+    else if (Array.isArray(target) && key === '-') target.push(op.value);
+    else target[key] = op.value;
+  }
+  return next;
+}
+const before = [];
+{
+  let d = EMPTY;
+  for (const s of steps) { before.push(d); d = applyOps(d, s.batch.ops); }
+}
+const docAt = (f, k) => applyOps(before[f], steps[f].batch.ops.slice(0, Math.min(k, steps[f].batch.ops.length)));
+const nOps = (f) => steps[f].batch.ops.length;
+
+// ---------- words ----------
+const KIND = {
+  structure: '代码变了：有组件或语句写完了，屏幕会重画',
+  constants: '只有固定文字变了，代码不变',
+  text: '只追加了原文：模型正写到一半的标签里，屏幕不变',
+  data: '服务端查的东西回来了（这里是图片）',
+  final: '最后一帧：附上降级版，标记结束',
+};
+const short = (v, n = 40) => {
+  let s = typeof v === 'string' ? v : JSON.stringify(v);
+  s = s.replace(/data:image\/[^"]{20,}/g, 'data:image/svg…');
+  s = s.replace(/\n/g, '↵');
+  return s.length > n ? s.slice(0, n) + '…' : s;
+};
+const q = (v, n) => `<q>${esc(short(v, n))}</q>`;
+function opWords(f, i) {
+  const op = steps[f].batch.ops[i];
+  const d = docAt(f, i);
+  const p = op.path;
+  if (op.op === 'append') {
+    if (p === '/text') return `<b>append</b>：把 ${q(op.value)} 接到 <b>text</b> 末尾。模型新写的字，只发新增的这一点。`;
+    return `<b>append</b>：常量表第 ${p.split('/')[2]} 条后面接上 ${q(op.value)}。界面上的文字变长了，代码一个字没动。`;
+  }
+  if (op.op === 'splice') {
+    const removed = d.code.slice(op.start, op.start + op.remove);
+    if (!op.remove) return `<b>splice</b>：在 <b>code</b> 第 ${op.start} 个字符处插入 ${q(op.value, 48)}，一个字都不删（remove = 0）。`;
+    if (!op.value) return `<b>splice</b>：从 <b>code</b> 第 ${op.start} 个字符起删掉 ${op.remove} 个字符 ${q(removed, 32)}，什么都不插。没写完的部分先撤下。`;
+    return `<b>splice</b>：从 <b>code</b> 第 ${op.start} 个字符起删掉 ${op.remove} 个字符 ${q(removed, 32)}，换成 ${q(op.value, 40)}。整段程序只发了变化的这一小段。`;
+  }
+  if (op.op === 'replace') {
+    if (p === '/code') return `<b>replace</b>：<b>code</b> 原来是空的，直接给出第一版完整程序。以后的修改都用 splice。`;
+    if (p === '/constants') return `<b>replace</b>：整张常量表换掉。表变短了（那条 ${q(d.constants.at(-1), 12)} 不要了），只能整表替换。`;
+    if (p.startsWith('/constants/')) return `<b>replace</b>：常量表第 ${p.split('/')[2]} 条整条换成 ${q(op.value)}。新值不是在旧值后面接上去的，所以不能用 append。`;
+    if (p === '/diagnostics') return op.value.length ? `<b>replace</b>：诊断换成 ${q(op.value[0].code, 30)}：末尾有东西还没写完，先跳过，等它写完。` : `<b>replace</b>：诊断清空，刚才没写完的地方现在写完了。`;
+    if (p === '/fallback') return `<b>replace</b>：附上 Markdown 降级版 ${q(op.value, 30)}，给跑不了程序的地方用。`;
+    if (p === '/done') return `<b>replace</b>：<b>done</b> 变成 true。浏览器看到它，就知道这条回复结束了。`;
+  }
+  if (op.op === 'add') {
+    if (p === '/constants/-') return `<b>add</b>：常量表末尾新增一条 ${q(op.value)}。路径末尾的 <b>-</b> 表示“加到数组最后”。`;
+    return `<b>add</b>：图片找到了，结果以键 ${q(p.split('/')[2], 30)} 放进 <b>data</b>。代码里的 Image 读的就是这个键。`;
+  }
+  return '';
+}
+function screenWords(f) {
+  const k = steps[f].batch.kind;
+  if (k === 'text') return '屏幕不变：这几个字还在一个没写完的标签里，编译结果和上一帧一样。';
+  if (k === 'constants') return '屏幕更新：只是标题的字变长了。程序没换，沙箱只换了常量表。';
+  if (k === 'data') return '屏幕更新：图片数据到了，Image 从“正在找图”变成真正的图。';
+  if (k === 'final') return '结束：界面完整了，屏幕和上一帧一样。';
+  if (f === 18) return '屏幕更新：注意末尾那个 <，它暂时被当成普通文字显示，下一帧写出 Image 才知道是标签的开头。';
+  return '屏幕更新：代码变了，沙箱重新运行程序，画出新的界面。';
+}
+
+// ---------- rendering ----------
+function rawHtml(raw) {
+  return esc(raw.replace(/data:image\/svg\+xml;charset=utf-8,[^"]{30,}?(?=")/g, 'data:image/svg+xml;…（省略图片数据）')).replace(/^(event|data):/gm, '<span class="k">$1:</span>');
+}
+function renderWire(f, k, enter = false) {
+  const s = steps[f];
+  const n = nOps(f);
+  $('wireSub').textContent = `第 ${f + 1} / ${steps.length} 帧`;
+  const rows = s.batch.ops
+    .map((op, i) => {
+      const state = i < k ? 'done' : i === k && k < n ? 'now' : 'pending';
+      const extra = op.op === 'splice' ? `start ${op.start} · remove ${op.remove}${op.value ? ' · value ' + short(op.value, 30) : ''}` : short(op.value, 46);
+      return `<li class="oprow op-${op.op} ${state}"><span class="badge">${op.op}</span><span class="path">${esc(op.path)}</span><span class="val">${esc(extra)}</span></li>`;
+    })
+    .join('');
+  $('wire').innerHTML = `<div class="fc${enter && !reduceMotion ? ' enter' : ''}">
+    <div class="fc-head"><b>第 ${s.batch.seq} 帧</b><span class="kind k-${s.batch.kind}">${s.batch.kind}</span><span>${n} 个操作 · ${s.bytes} 字节</span></div>
+    <pre class="raw">${rawHtml(s.raw)}</pre>
+    <ol class="ops">${rows}</ol>
+    <p class="kindnote">kind = ${s.batch.kind}：${KIND[s.batch.kind]}</p></div>`;
+}
+
+const fmtText = (s) => esc(s).replace(/\n/g, '<span class="nl">↵</span>\n');
+function fieldHtml(name, sub, body, empty = false) {
+  return `<div class="field" data-field="${name}"><div class="fname">${name}<small>${sub}</small></div><div class="fval${empty ? ' empty' : ''}" id="f-${name}">${body}</div></div>`;
+}
+function dataBody(data) {
+  const keys = Object.keys(data);
+  if (!keys.length) return '（空）';
+  return keys
+    .map((k) => {
+      const v = data[k];
+      const img = v && typeof v.url === 'string' && v.url.startsWith('data:image/') ? `<img src="${esc(v.url)}" alt="">` : '';
+      return `<div class="datarow">${img}<code>${esc(k)}: ${esc(short(v, 60))}</code></div>`;
+    })
+    .join('');
+}
+function renderDoc(doc) {
+  const constants = doc.constants.length ? `<ol class="chips" id="chips">${doc.constants.map((c, i) => `<li data-i="${i}"><span class="ix">${i}</span><span class="cv">${fmtText(c)}</span></li>`).join('')}</ol>` : '（空）';
+  const diags = doc.diagnostics.length ? `<div class="diag">${doc.diagnostics.map((d) => `<span class="${d.severity === 'warning' ? 'w' : ''}">${esc(d.code)}</span>`).join('')}</div>` : '（空）';
+  $('doc').innerHTML = [
+    fieldHtml('text', '模型原文', doc.text ? fmtText(doc.text) : '（空）', !doc.text),
+    fieldHtml('code', '编译出的程序', doc.code ? `<div class="codebox" id="codebox">${esc(doc.code)}</div>` : '（空）', !doc.code),
+    fieldHtml('constants', '常量表', constants, !doc.constants.length),
+    fieldHtml('diagnostics', '诊断', diags, !doc.diagnostics.length),
+    fieldHtml('data', '工具数据和图片', dataBody(doc.data), !Object.keys(doc.data).length),
+    fieldHtml('fallback', '降级版', doc.fallback ? fmtText(doc.fallback) : '—', !doc.fallback),
+    fieldHtml('done', '结束了吗', `<span class="bool ${doc.done ? 'true' : ''}">${doc.done}</span>`),
+  ].join('');
+}
+function fieldOf(path) {
+  return path.split('/')[1];
+}
+function touch(path, op) {
+  document.querySelectorAll('.field.touch').forEach((el) => el.classList.remove('touch', 'op-append', 'op-splice', 'op-replace', 'op-add'));
+  const el = document.querySelector(`.field[data-field="${fieldOf(path)}"]`);
+  if (el) el.classList.add('touch', `op-${op}`);
+  return el;
+}
+
+function renderNode(n) {
+  if (typeof n === 'string') return esc(n);
+  const kids = n.children.map(renderNode).join('');
+  const p = n.props;
+  switch (n.type) {
+    case 'Title': return `<h3 class="s-title">${kids}</h3>`;
+    case 'Text': return `<p class="s-text">${kids}</p>`;
+    case 'Bold': return `<strong>${kids}</strong>`;
+    case 'Slider': {
+      const pct = ((Number(p.value) - Number(p.min)) / (Number(p.max) - Number(p.min))) * 100;
+      return `<div class="s-slider">${p.label ? `<span class="lbl">${esc(p.label)}</span>` : ''}<div class="row"><div class="track"><div class="fill" style="width:${pct}%"></div><div class="thumb" style="left:${pct}%"></div></div><span class="num">${esc(String(p.value))}</span></div></div>`;
+    }
+    case 'Image': {
+      const ratio = String(p.aspect || '4:3').replace(':', ' / ');
+      const url = p.resolved && typeof p.resolved.url === 'string' && p.resolved.url.startsWith('data:image/') ? p.resolved.url : null;
+      return `<figure class="s-image" style="aspect-ratio:${ratio}">${url ? `<img src="${esc(url)}" alt="${esc(p.query || '')}">` : `正在找图：${esc(p.query || '')}`}</figure>`;
+    }
+    default: return kids;
+  }
+}
+function renderScreen(tree) {
+  $('device').innerHTML = tree.length ? tree.map(renderNode).join('') : '<span class="empty">（还什么都没有）</span>';
+}
+
+// ---------- state ----------
+// Position (f, k): frame f has arrived and its first k ops are applied; k = n + 1 means the screen has been redrawn too.
+let f = 0, k = 0, playing = false, speed = 1, token = 0, busy = false;
+function screenFor(fr, kk) {
+  if (kk > nOps(fr)) return steps[fr].screen;
+  return fr > 0 ? steps[fr - 1].screen : [];
+}
+function setNarration(html, op) {
+  const el = $('narration');
+  el.innerHTML = html;
+  el.style.setProperty('--c', op ? `var(--op-${op})` : 'var(--fg)');
+}
+function narrateStatic() {
+  const n = nOps(f);
+  if (k === 0) {
+    const s = steps[f].batch;
+    setNarration(f === 0 && !playing && !started ? `按<b>播放</b>，看 27 帧补丁怎样一步步拼出右边的界面。第 0 帧已经到了：kind = ${s.kind}，${n} 个操作。` : `第 ${s.seq} 帧到了：<b>${s.kind}</b>，${KIND[s.kind]}。里面有 ${n} 个操作，按顺序执行。`);
+  } else if (k <= n) setNarration(opWords(f, k - 1), steps[f].batch.ops[k - 1].op);
+  else setNarration(screenWords(f));
+}
+let started = false;
+function renderStatic() {
+  renderWire(f, k);
+  renderDoc(docAt(f, k));
+  renderScreen(screenFor(f, k));
+  $('device').classList.remove('flash', 'still');
+  $('screenNote').textContent = k > nOps(f) ? '' : '（这一帧的操作执行完，屏幕才会更新）';
+  if (k >= 1 && k <= nOps(f)) {
+    const op = steps[f].batch.ops[k - 1];
+    touch(op.path, op.op);
+  }
+  narrateStatic();
+  renderTicks();
+}
+function renderTicks() {
+  document.querySelectorAll('#ticks .tick').forEach((t, i) => {
+    t.classList.toggle('now', i === f);
+    t.classList.toggle('future', i > f);
+  });
+  $('counter').textContent = `帧 ${f} / ${steps.length - 1} · 操作 ${Math.min(k, nOps(f))} / ${nOps(f)}`;
+}
+
+// ---------- animation ----------
+const sleep = (ms, my) => new Promise((res, rej) => setTimeout(() => (my === token ? res() : rej(new Error('cancel'))), reduceMotion ? Math.min(ms, 120) : ms / speed / (steps[f].batch.kind === 'text' && playing ? 2 : 1)));
+async function typeInto(el, text, my, op) {
+  const span = document.createElement('span');
+  span.className = `ins op-${op}`;
+  el.appendChild(span);
+  const chars = [...text];
+  const per = Math.max(18, Math.min(60, 900 / Math.max(1, chars.length)));
+  if (chars.length > 60 || reduceMotion) {
+    span.classList.add('fade');
+    span.innerHTML = fmtText(text);
+    await sleep(700, my);
+    return;
+  }
+  for (const c of chars) {
+    span.innerHTML += fmtText(c);
+    await sleep(per, my);
+  }
+}
+async function animateOp(fr, i, my) {
+  const op = steps[fr].batch.ops[i];
+  const d = docAt(fr, i);
+  renderWire(fr, i);
+  setNarration(opWords(fr, i), op.op);
+  const field = touch(op.path, op.op);
+  const name = fieldOf(op.path);
+  await sleep(450, my);
+
+  if (op.op === 'append') {
+    if (name === 'text') {
+      const el = $('f-text');
+      if (!d.text) el.textContent = '';
+      el.classList.remove('empty');
+      await typeInto(el, op.value, my, 'append');
+    } else {
+      const li = document.querySelector(`#chips li[data-i="${op.path.split('/')[2]}"] .cv`);
+      if (li) await typeInto(li, op.value, my, 'append');
+    }
+    await sleep(500, my);
+  } else if (op.op === 'splice') {
+    const box = $('codebox');
+    const s = d.code;
+    const removed = s.slice(op.start, op.start + op.remove);
+    box.innerHTML = `${esc(s.slice(0, op.start))}<span id="mark">${removed ? `<span class="del">${esc(removed)}</span>` : '<span class="caret"></span>'}</span>${esc(s.slice(op.start + op.remove))}`;
+    const mark = $('mark');
+    box.scrollTo({ top: Math.max(0, mark.offsetTop - box.offsetTop - box.clientHeight / 3), behavior: reduceMotion ? 'auto' : 'smooth' });
+    await sleep(1100, my);
+    if (removed) {
+      mark.firstChild.classList.add('gone');
+      await sleep(400, my);
+    }
+    mark.innerHTML = '';
+    if (op.value) await typeInto(mark, op.value, my, 'splice');
+    await sleep(700, my);
+  } else if (op.op === 'replace') {
+    const el = $(`f-${name}`);
+    if (name === 'constants' && op.path !== '/constants') {
+      const cv = document.querySelector(`#chips li[data-i="${op.path.split('/')[2]}"] .cv`);
+      if (cv) {
+        cv.classList.add('old');
+        await sleep(600, my);
+        cv.classList.remove('old');
+        cv.innerHTML = '';
+        await typeInto(cv, op.value, my, 'replace');
+      }
+    } else if (el) {
+      el.classList.add('old');
+      await sleep(600, my);
+      el.classList.remove('old', 'empty');
+      const after = applyOps(d, [op]);
+      renderDoc(after);
+      touch(op.path, op.op);
+      const fresh = $(`f-${name}`);
+      fresh.innerHTML = `<span class="ins op-replace fade" style="display:inline">${fresh.innerHTML}</span>`;
+      if (name === 'code') fresh.firstChild.style.display = 'block';
+    }
+    await sleep(700, my);
+  } else if (op.op === 'add') {
+    const after = applyOps(d, [op]);
+    renderDoc(after);
+    touch(op.path, op.op);
+    if (name === 'constants') document.querySelector('#chips li:last-child')?.classList.add('enter');
+    else document.querySelector('#f-data .datarow:last-child')?.classList.add('enter');
+    await sleep(1100, my);
+  }
+
+  // Settle on the exact document after this op.
+  k = i + 1;
+  renderDoc(docAt(fr, k));
+  touch(op.path, op.op);
+  renderWire(fr, k);
+  renderTicks();
+}
+async function animateScreen(fr, my) {
+  setNarration(screenWords(fr));
+  const changed = JSON.stringify(steps[fr].screen) !== JSON.stringify(screenFor(fr, 0));
+  renderScreen(steps[fr].screen);
+  $('screenNote').textContent = '';
+  const dev = $('device');
+  dev.classList.remove('flash', 'still');
+  void dev.offsetWidth;
+  dev.classList.add(changed ? 'flash' : 'still');
+  k = nOps(fr) + 1;
+  renderWire(fr, k);
+  renderTicks();
+  await sleep(changed ? 1300 : 800, my);
+  dev.classList.remove('flash', 'still');
+}
+async function animateArrive(fr, my) {
+  f = fr;
+  k = 0;
+  renderWire(fr, 0, true);
+  renderDoc(docAt(fr, 0));
+  $('screenNote').textContent = '（这一帧的操作执行完，屏幕才会更新）';
+  narrateStatic();
+  renderTicks();
+  await sleep(steps[fr].batch.kind === 'text' ? 700 : 1100, my);
+}
+// One step forward, animated. Returns false at the end.
+async function stepForward(my) {
+  const n = nOps(f);
+  if (k < n) await animateOp(f, k, my);
+  else if (k === n) await animateScreen(f, my);
+  else if (f < steps.length - 1) await animateArrive(f + 1, my);
+  else return false;
+  return true;
+}
+async function run() {
+  const my = token;
+  try {
+    while (playing && my === token) {
+      busy = true;
+      const more = await stepForward(my);
+      busy = false;
+      if (!more) { stop(); setNarration('播完了：27 帧、56 个操作，最后屏幕上就是完整的回复。点“播放”从头再来，或者点上面的帧单独看。'); break; }
+      await sleep(250, my);
+    }
+  } catch {
+    busy = false;
+  }
+}
+function play() {
+  started = true;
+  if (f === steps.length - 1 && k > nOps(f)) { jump(0, 0); }
+  playing = true;
+  syncBtn();
+  token++;
+  run();
+}
+function stop() { playing = false; syncBtn(); }
+function pause() { stop(); }
+function syncBtn() { $('playBtn').textContent = playing ? '暂停' : '播放'; }
+function jump(fr, kk) {
+  token++;
+  busy = false;
+  f = fr;
+  k = kk;
+  renderStatic();
+}
+async function stepOnce() {
+  if (busy) { token++; busy = false; renderStatic(); }
+  stop();
+  started = true;
+  const my = ++token;
+  try {
+    busy = true;
+    await stepForward(my);
+  } catch {}
+  busy = false;
+}
+function stepBack() {
+  stop();
+  if (k > 0) jump(f, k - 1);
+  else if (f > 0) jump(f - 1, nOps(f - 1) + 1);
+}
+
+// ---------- static UI ----------
+const LEGEND = [
+  { op: 'append', ds: '在字符串末尾接上一段', ex: '原文变长、标题文字变长', at: [2, 1] },
+  { op: 'splice', ds: '删掉字符串中间一段，换成新的', ex: '程序只改中间，只发改的那段', at: [1, 1] },
+  { op: 'replace', ds: '整个值换掉', ex: '诊断、整张常量表、done', at: [1, 2] },
+  { op: 'add', ds: '往数组末尾加一项，或加一个键', ex: '常量表新增一条、图片结果', at: [25, 0] },
+];
+$('legend').innerHTML = LEGEND.map((l, i) => `<button type="button" class="opcard op-${l.op}" data-i="${i}"><span class="nm">${l.op}</span><span class="ds">${l.ds}</span><span class="ex">例：${l.ex} · 点我看一次</span></button>`).join('');
+$('legend').addEventListener('click', (e) => {
+  const card = e.target.closest('.opcard');
+  if (!card) return;
+  const [fr, i] = LEGEND[Number(card.dataset.i)].at;
+  stop();
+  jump(fr, i);
+  stepOnce();
+});
+$('ticks').innerHTML = steps.map((s, i) => `<button type="button" class="tick k-${s.batch.kind}" data-f="${i}" title="第 ${i} 帧 · ${s.batch.kind}" aria-label="第 ${i} 帧，${s.batch.kind}"></button>`).join('');
+$('ticks').addEventListener('click', (e) => {
+  const t = e.target.closest('.tick');
+  if (!t) return;
+  const was = playing;
+  stop();
+  jump(Number(t.dataset.f), 0);
+  if (was) play();
+});
+$('playBtn').addEventListener('click', () => (playing ? pause() : play()));
+$('nextBtn').addEventListener('click', stepOnce);
+$('prevBtn').addEventListener('click', stepBack);
+$('speed').addEventListener('change', (e) => { speed = Number(e.target.value); });
+document.addEventListener('keydown', (e) => {
+  if (e.target.closest('select, input, textarea, button')) return;
+  if (e.key === ' ') { e.preventDefault(); playing ? pause() : play(); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); stepOnce(); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); stepBack(); }
+});
+
+renderStatic();
+</script>

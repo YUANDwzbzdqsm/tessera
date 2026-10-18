@@ -329,6 +329,7 @@ npm run check        # 类型检查 + 单元测试 + SES 沙箱测试
 npm run e2e          # 用本机 Chrome 跑端到端检查（CHROME_PATH 可覆盖路径）：
                      #   阶段 1 生产构建：M1 交互闭环 + M3 隔离与看门狗；阶段 2 开发服务器：M2 流式
 npm run eval -- …    # 用真实模型跑基准提示（见“评测（M5）”）
+npm run walkthrough  # 重新生成代码导读视频页（见 docs/walkthrough/README.md）
 ```
 
 当前结果：类型检查通过；单元测试 92 项、SES 沙箱测试 9 项、端到端检查 26 项全部通过。端到端截图在 `.e2e/demo.png`。
