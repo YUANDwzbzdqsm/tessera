@@ -1,6 +1,6 @@
 import type { Catalog } from '@tessera/catalog';
 import type { Diagnostics } from './diagnostics';
-import type { EachNode, ElementNode, IfNode, Node } from './parse';
+import type { CodeNode, EachNode, ElementNode, IfNode, Node } from './parse';
 import type { RawAttr } from './tokenize';
 
 /** The tree after Markdown has been turned into catalog components. Codegen works on this. */
@@ -97,10 +97,10 @@ function blockContent(nodes: readonly Node[], ctx: Ctx): UINode[] {
         if (i > 0) endLine();
         if (part) line.push({ kind: 'text', value: part, pos: node.pos });
       });
-    } else if (node.kind === 'expr') {
+    } else if (node.kind === 'expr' || (node.kind === 'code' && !node.block)) {
       line.push(node);
     } else {
-      const forcedBlock = node.kind === 'element' && ctx.catalog.get(node.name)?.children === 'block';
+      const forcedBlock = (node.kind === 'element' && ctx.catalog.get(node.name)?.children === 'block') || node.kind === 'code';
       if (lineIsBlank() || forcedBlock) {
         if (!lineIsBlank()) endLine();
         line = [];
@@ -178,7 +178,16 @@ function blockNode(node: Node, ctx: Ctx): UINode | null {
   if (node.kind === 'element') return element(node, ctx);
   if (node.kind === 'if') return ifNode(node, ctx, blockContent);
   if (node.kind === 'each') return eachNode(node, ctx, blockContent);
+  if (node.kind === 'code') return codeNode(node);
   return null;
+}
+
+/** Code keeps its text as one verbatim text child; codegen stores it as a constant, so nothing in it is evaluated. */
+function codeNode(node: CodeNode): UIElement {
+  const text: UINode[] = node.value ? [{ kind: 'text', value: node.value }] : [];
+  if (!node.block) return markdownElement('Code', text);
+  const attrs: RawAttr[] = node.lang ? [{ name: 'language', value: { kind: 'string', value: node.lang }, pos: -1 }] : [];
+  return markdownElement('CodeBlock', text, attrs);
 }
 
 function element(node: ElementNode, ctx: Ctx): UIElement | null {
@@ -222,7 +231,8 @@ function markdownElement(name: string, children: UINode[], attrs: RawAttr[] = []
 }
 
 /**
- * Inline content: text with **bold**, *italic* and `code`, expressions, inline components and control blocks.
+ * Inline content: text with **bold** and *italic*, code spans (already tokens), expressions, inline components and
+ * control blocks.
  * Unclosed markers are closed at the end, so a streaming prefix renders sensibly.
  */
 function inlineContent(nodes: readonly Node[], ctx: Ctx): UINode[] {
@@ -263,15 +273,6 @@ function inlineContent(nodes: readonly Node[], ctx: Ctx): UINode[] {
       if (ui) top().children.push(ui);
       continue;
     }
-    if (top().name === 'Code') {
-      if (it === '`') stack.pop();
-      else pushText(it);
-      continue;
-    }
-    if (it === '`') {
-      open('Code');
-      continue;
-    }
     if (it === '*' && charAt(i + 1) === '*') {
       if (isOpen('Bold') && !space(charAt(i - 1))) closeTo('Bold');
       else if (!space(charAt(i + 2))) open('Bold');
@@ -295,6 +296,7 @@ function inlineNode(node: Node, ctx: Ctx): UINode | null {
   if (node.kind === 'element') return element(node, ctx);
   if (node.kind === 'if') return ifNode(node, ctx, inlineContent);
   if (node.kind === 'each') return eachNode(node, ctx, inlineContent);
+  if (node.kind === 'code') return codeNode(node);
   return null;
 }
 

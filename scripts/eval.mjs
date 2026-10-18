@@ -46,7 +46,17 @@ const lang = await vite.ssrLoadModule('/packages/lang/src/index.ts');
 const { createStreamCompiler } = await vite.ssrLoadModule('/packages/stream/src/server.ts');
 const catalog = defineCatalog();
 
-const MARKDOWN = new Set(['Title', 'Text', 'Bold', 'Italic', 'Code', 'List', 'ListItem']);
+const MARKDOWN = new Set(['Title', 'Text', 'Bold', 'Italic', 'Code', 'CodeBlock', 'List', 'ListItem']);
+const FENCED_BLOCK = /^ {0,3}(`{3,}|~{3,})[^\n]*\n([\s\S]*?)(?:^ {0,3}\1[ \t]*$|(?![\s\S]))/gm;
+
+/** Whether a code block holds Tessera markup: the model fenced the interface instead of writing it. Code itself is fine. */
+function fencedMarkup(text) {
+  for (const [, , body] of text.matchAll(FENCED_BLOCK)) {
+    if (/\{[@#]/.test(body)) return true;
+    for (const [, name] of body.matchAll(/<([A-Z]\w*)/g)) if (catalog.get(name) && !MARKDOWN.has(name)) return true;
+  }
+  return false;
+}
 const INTERACTIVE = new Set(['Slider', 'Checkbox', 'Button']);
 const WIDGET = /__h\("(Slider|Checkbox|Button|Image)"/;
 
@@ -199,7 +209,7 @@ async function evaluateAnswer(c, text, metrics) {
     compiles: errors.length === 0,
     renders: replay.ok === true && replay.before.nodes > 0,
     runtimeClean: replay.ok === true && replay.issues.length === 0,
-    noCodeFence: !/```/.test(text),
+    markupNotFenced: !fencedMarkup(text),
     uiChoice: e.ui ? nonMarkdown.length > 0 : !components.some((n) => INTERACTIVE.has(n)),
     usesExpected: (e.use ?? []).every((n) => components.includes(n)),
     containsExpected: (e.contains ?? []).every((s) => fallback.includes(s)),
@@ -250,7 +260,7 @@ function feedbackText(result) {
     runtimeIssues: [...(result.replay.issues ?? []), ...(result.replay.error ? [result.replay.error] : [])].map((s) => ({ code: s.split(':')[0], message: s })),
   });
   if (fromCompiler) parts.push(fromCompiler);
-  if (!result.checks.noCodeFence) parts.push('- Do not wrap the answer in a code block: write the markup directly.');
+  if (!result.checks.markupNotFenced) parts.push('- Do not put the interface in a code block: write the markup directly. Code blocks are only for code.');
   if (!result.checks.noCopiedValues) parts.push(`- You retyped values from the tool results (${result.copied.join(', ')}); refer to them as {name.field} instead.`);
   if (!result.checks.usesExpected || !result.checks.uiChoice) parts.push('- This request calls for an interactive interface built from the catalog components.');
   if (!parts.length) return null;
@@ -284,7 +294,7 @@ function buildReport(rows) {
     compiles: count((r) => r.checks.compiles),
     renders: count((r) => r.checks.renders),
     runtimeClean: count((r) => r.checks.runtimeClean),
-    noCodeFence: count((r) => r.checks.noCodeFence),
+    markupNotFenced: count((r) => r.checks.markupNotFenced),
     uiChoice: count((r) => r.checks.uiChoice),
     noCopiedValues: `${dataCases.filter((r) => r.checks.noCopiedValues).length}/${dataCases.length}`,
     medianFirstTokenMs: median(res.map((r) => r.metrics.firstTokenMs)),
@@ -305,7 +315,7 @@ function buildReport(rows) {
   md.push(`| Compiles without errors | ${summary.compiles}/${ok.length} |`);
   md.push(`| Renders in the sandbox | ${summary.renders}/${ok.length} |`);
   md.push(`| No runtime issues (incl. firing every handler) | ${summary.runtimeClean}/${ok.length} |`);
-  md.push(`| No code fences | ${summary.noCodeFence}/${ok.length} |`);
+  md.push(`| Markup not inside code fences | ${summary.markupNotFenced}/${ok.length} |`);
   md.push(`| UI vs plain text chosen as expected | ${summary.uiChoice}/${ok.length} |`);
   md.push(`| Tool values not retyped | ${summary.noCopiedValues} |`);
   md.push(`| Median first token | ${summary.medianFirstTokenMs ?? '–'} ms |`);

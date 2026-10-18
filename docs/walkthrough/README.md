@@ -20,7 +20,7 @@
 | 6 | 画到屏幕上：组件、状态和 ui.send | https://claude.ai/artifact/SxtwPgLfsNnrEMy2GLrUme |
 | 番外 | SSE 补丁回放（27 帧、56 个操作的动画） | https://claude.ai/artifact/RebpJEhp3Ce46JSt7SD1hE |
 
-讲稿里的行号对应提交 `aa34cf6`。
+讲稿里的行号对应提交 `aa34cf6`。左边显示的代码是构建时用 `git show aa34cf6:<路径>` 从这个提交读出来的，不是工作区里的当前文件。
 
 ## 目录
 
@@ -54,7 +54,15 @@ node docs/walkthrough/series/shots.mjs file:///…/tessera-ep3.html docs/walkthr
 
 ## 改了代码之后
 
-讲稿里写死了行号，代码一改，行号就可能错位。构建只检查范围在不在文件里，检查不出“这几行现在讲的已经不是这件事了”。所以改了相关文件以后，要对照 `epN/script.mjs` 里的 `lines` 和讲稿文字更新一遍。
+讲稿里写死了行号，所以代码固定读自 `series/common.mjs` 里的 `commit`。之后再改代码，页面也不会错位。
+
+想让视频跟上新代码，要做两件事：
+- 把 `commit` 改成新的提交；
+- 对照 `epN/script.mjs` 里的 `lines` 和讲稿文字，更新一遍。
+
+构建只检查范围在不在文件里，检查不出“这几行现在讲的已经不是这件事了”。
+
+第 2、3、4 集构建时跑的函数（`stringDiff`、`tokenize` 等）用的仍是工作区里的当前代码。这些动画的结果变了，重新构建就能看出来。
 
 重新抓 SSE 流：先 `npm run dev`，再向 `POST http://localhost:5180/api/stream` 发同样的 `source`。两段原文分别写在 `ep1/script.mjs` 的讲稿里，和 `sse-anim/build.mjs` 里。
 

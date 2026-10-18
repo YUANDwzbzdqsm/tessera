@@ -168,6 +168,12 @@ export const markdownComponents: readonly ComponentSpec[] = [
   defineComponent({ name: 'Italic', description: 'Italic run, from *text*.', children: 'inline' }),
   defineComponent({ name: 'Code', description: 'Inline code, from `text`.', children: 'inline' }),
   defineComponent({
+    name: 'CodeBlock',
+    description: 'A block of code, from a ``` fence (```python … ```). Write the fence, not this tag; the code is shown exactly as written.',
+    props: z.object({ language: z.string().optional() }),
+    children: 'inline',
+  }),
+  defineComponent({
     name: 'List',
     description: 'A list. Markdown "- item" and "1. item" lines compile to List + ListItem.',
     props: z.object({ ordered: z.boolean().optional() }),

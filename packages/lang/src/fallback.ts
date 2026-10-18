@@ -136,7 +136,12 @@ function element(n: UIElement, scope: Scope, ctx: Ctx): string {
     case 'Italic':
       return wrap('*', inline(n.children, scope, ctx));
     case 'Code':
-      return wrap('`', inline(n.children, scope, ctx));
+      return codeSpan(inline(n.children, scope, ctx));
+    case 'CodeBlock': {
+      const code = inline(n.children, scope, ctx);
+      const fence = '`'.repeat(Math.max(3, longestRun(code) + 1));
+      return `${fence}${String(props(n, scope, ctx).language ?? '')}\n${code}\n${fence}`;
+    }
     case 'List': {
       const ordered = props(n, scope, ctx).ordered === true;
       let index = 0;
@@ -189,6 +194,28 @@ function wrap(marker: string, text: string): string {
   return text ? `${marker}${text}${marker}` : '';
 }
 
+/** A code span that survives backticks in the code: the fence is longer than any run inside. */
+function codeSpan(code: string): string {
+  if (!code) return '';
+  const fence = '`'.repeat(longestRun(code) + 1);
+  const pad = code.startsWith('`') || code.endsWith('`') ? ' ' : '';
+  return `${fence}${pad}${code}${pad}${fence}`;
+}
+
+function longestRun(code: string): number {
+  return Math.max(0, ...(code.match(/`+/g) ?? []).map((r) => r.length));
+}
+
+/** A fenced block as CodeBlock writes it: from a fence line to the same fence line. */
+const FENCED = /^(`{3,})[^\n]*\n[\s\S]*?\n\1$/gm;
+
+/** Collapses the extra blank lines left between blocks; blank lines inside code are the code's own. */
 function tidy(markdown: string): string {
-  return markdown.replace(/\n{3,}/g, '\n\n').trim();
+  let out = '';
+  let last = 0;
+  for (const m of markdown.matchAll(FENCED)) {
+    out += markdown.slice(last, m.index).replace(/\n{3,}/g, '\n\n') + m[0];
+    last = m.index + m[0].length;
+  }
+  return (out + markdown.slice(last).replace(/\n{3,}/g, '\n\n')).trim();
 }

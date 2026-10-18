@@ -131,6 +131,17 @@ function Image({ query, alt, aspect = '4:3', resolved }: { query?: string; alt?:
   );
 }
 
+function CodeBlock({ language, children }: Kids & { language?: string }) {
+  return (
+    <figure className="t-codeblock">
+      {language ? <figcaption>{language}</figcaption> : null}
+      <pre>
+        <code>{children}</code>
+      </pre>
+    </figure>
+  );
+}
+
 function List({ ordered, children }: Kids & { ordered?: boolean }) {
   return ordered ? <ol className="t-list">{children}</ol> : <ul className="t-list">{children}</ul>;
 }
@@ -141,6 +152,7 @@ export const components: TesseraComponents = {
   Bold: ({ children }: Kids) => <strong>{children}</strong>,
   Italic: ({ children }: Kids) => <em>{children}</em>,
   Code: ({ children }: Kids) => <code className="t-code">{children}</code>,
+  CodeBlock,
   List,
   ListItem: ({ children }: Kids) => <li>{children}</li>,
   Box,

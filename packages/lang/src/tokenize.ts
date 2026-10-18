@@ -22,7 +22,9 @@ export type Token =
   | { readonly t: 'else'; readonly pos: number }
   | { readonly t: 'endif'; readonly pos: number }
   | { readonly t: 'each'; readonly source: string; readonly pos: number }
-  | { readonly t: 'endeach'; readonly pos: number };
+  | { readonly t: 'endeach'; readonly pos: number }
+  /** Verbatim code: a fenced block (block: true) or an inline code span. Nothing inside is parsed. */
+  | { readonly t: 'code'; readonly value: string; readonly lang: string; readonly block: boolean; readonly pos: number };
 
 const UPPER = /[A-Z]/;
 const ATTR_NAME = /^[A-Za-z_][\w-]*/;
@@ -49,9 +51,73 @@ function tagNameAt(src: string, i: number): boolean {
   return after === undefined || after === '>' || after === '/' || /\s/.test(after);
 }
 
+/** An opening code fence at the start of a line: up to three spaces, ``` or ~~~ (or longer), then the language. */
+const FENCE = / {0,3}(`{3,}|~{3,})([^\n`]*)(?:\n|$)/y;
+
+/**
+ * A fenced block starting at `start` (which must be the start of a line), or null. Its contents are verbatim, so code
+ * full of braces, `<`, `#` and `*` stays code. A fence that is not closed yet (a streaming prefix, or a model that
+ * forgot) runs to the end of the source instead of being dropped.
+ */
+function readFence(src: string, start: number): { value: string; lang: string; end: number; closed: boolean } | null {
+  FENCE.lastIndex = start;
+  const open = FENCE.exec(src);
+  if (!open) return null;
+  const marker = open[1]!;
+  const ch = marker[0] === '`' ? '`' : '~';
+  const body = start + open[0].length;
+  const closing = new RegExp(`^ {0,3}${ch}{${marker.length},}[ \\t]*$`, 'm');
+  const m = closing.exec(src.slice(body));
+  const lang = open[2]!.trim().split(/\s+/)[0] ?? '';
+  // Content lines lose as much indentation as the opening fence had, as in CommonMark (a fence inside a list item).
+  const indent = open[0].length - open[0].trimStart().length;
+  const dedent = (s: string) => (indent ? s.replace(new RegExp(`^ {1,${indent}}`, 'gm'), '') : s);
+  if (!m) {
+    // The closing fence may be half-written: a last line of only fence characters is not content.
+    const value = src.slice(body).replace(new RegExp(`(^|\\n) {0,3}\\${ch}+$`), '').replace(/\n$/, '');
+    return { value: dedent(value), lang, end: src.length, closed: false };
+  }
+  const value = src.slice(body, body + m.index).replace(/\n$/, '');
+  return { value: dedent(value), lang, end: body + m.index + m[0].length, closed: true };
+}
+
+/**
+ * An inline code span starting at `start` (a run of backticks), or null when it is not one: no closing run of the same
+ * length before a blank line. Running into the end of the source on the same line counts as still being written; a
+ * stray backtick with more lines after it stays a character, so it cannot swallow a component on the next line.
+ */
+function readInlineCode(src: string, start: number): { value: string; end: number } | null {
+  let n = 0;
+  while (src[start + n] === '`') n++;
+  let i = start + n;
+  while (i < src.length) {
+    if (src[i] === '\n') {
+      let j = i + 1;
+      while (src[j] === ' ' || src[j] === '\t') j++;
+      if (src[j] === '\n') return null; // a blank line ends the paragraph
+    }
+    if (src[i] !== '`') {
+      i++;
+      continue;
+    }
+    let run = 0;
+    while (src[i + run] === '`') run++;
+    if (run === n) {
+      const value = src.slice(start + n, i).replace(/\n/g, ' ');
+      // `` a`b `` pads the code so it can hold a backtick; one space each side is padding, not code (as in CommonMark).
+      const padded = value.length > 2 && value.startsWith(' ') && value.endsWith(' ') && value.trim() !== '';
+      return { value: padded ? value.slice(1, -1) : value, end: i + n };
+    }
+    i += run;
+  }
+  const rest = src.slice(start + n);
+  return rest.includes('\n') ? null : { value: rest, end: src.length };
+}
+
 /**
  * Splits source into tokens. An incomplete construct at the end (an unclosed `{`, a tag without `>`)
  * ends tokenisation: everything from it onward is dropped, which is exactly what a streaming prefix needs.
+ * Code (fenced blocks and inline spans) is read first and kept verbatim: braces inside it are not expressions.
  */
 export function tokenize(src: string, diags: Diagnostics): Token[] {
   const tokens: Token[] = [];
@@ -71,9 +137,36 @@ export function tokenize(src: string, diags: Diagnostics): Token[] {
     const c = src[i]!;
     const next = src[i + 1] ?? '';
 
-    if (c === '\\' && (next === '{' || next === '}' || next === '<')) {
+    if (c === '\\' && (next === '{' || next === '}' || next === '<' || next === '`')) {
       addText(next, i);
       i += 2;
+      continue;
+    }
+
+    if ((c === '`' || c === '~' || c === ' ') && (i === 0 || src[i - 1] === '\n')) {
+      const fence = readFence(src, i);
+      if (fence) {
+        flush();
+        tokens.push({ t: 'code', value: fence.value, lang: fence.lang, block: true, pos: i });
+        if (!fence.closed) diags.warn('unclosed_code', 'Code block without a closing fence; the rest is shown as code', i);
+        i = fence.end;
+        continue;
+      }
+    }
+
+    if (c === '`') {
+      const span = readInlineCode(src, i);
+      if (span) {
+        flush();
+        tokens.push({ t: 'code', value: span.value, lang: '', block: false, pos: i });
+        i = span.end;
+        continue;
+      }
+      // No closing backticks in this paragraph: they are just characters.
+      let n = 0;
+      while (src[i + n] === '`') n++;
+      addText(src.slice(i, i + n), i);
+      i += n;
       continue;
     }
 

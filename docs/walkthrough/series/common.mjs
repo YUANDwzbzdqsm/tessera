@@ -1,5 +1,8 @@
 // Shared by every episode: the series list, published links, and the series map that opens and closes each episode.
 
+/** The commit every script's line numbers refer to. Code shown on the left is read from it, not from the working tree. */
+export const commit = 'aa34cf6';
+
 export const links = {
   1: 'https://claude.ai/artifact/XsqRxEeJcNq8F9T7tfpvk7',
   2: 'https://claude.ai/artifact/UVJuwjSGTQksLzPAjxoH4P',

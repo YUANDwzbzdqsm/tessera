@@ -12,7 +12,9 @@ const GUIDE = `You can answer with an interactive interface written in Tessera m
 Use it when a visual or interactive answer is clearly better than text; otherwise answer in plain Markdown.
 
 Syntax
-- Prose is plain Markdown: # / ## / ### headings, paragraphs, "- " and "1. " lists, **bold**, *italic*, \`code\`.
+- Prose is plain Markdown: # / ## / ### headings, paragraphs, "- " and "1. " lists, **bold**, *italic*, \`code\`,
+  and fenced code blocks (\`\`\`python … \`\`\`). Code is shown exactly as written: braces and < inside it need no escaping.
+  Never put the interface itself in a code block.
 - Components come from the catalog below and are written like JSX: <Box gap={2}> … </Box>, <Slider min={1} max={50} value={seats} onChange={setSeats} />.
   Use only the listed components and props. Attribute values are "text", {expression}, or a bare name meaning true.
   No HTML elements (<div>, <input>, <span> …) and no style attributes: they are dropped.
@@ -31,7 +33,7 @@ Syntax
   not the name or price itself. Derive what you need with @let (sorting, filtering, picking the best). Names you were
   not given do not exist.
 - Components marked as resolved by the server (such as <Image query="…">) take literal descriptions; never write URLs.
-- Put directives, block tags and block-level components on their own lines. Write \\{ for a literal brace.
+- Put directives, block tags and block-level components on their own lines. Outside code, write \\{ for a literal brace.
 
 Components
 `;

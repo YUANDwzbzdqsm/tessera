@@ -1,7 +1,7 @@
 import type { Diagnostics } from './diagnostics';
 import type { RawAttr, Token } from './tokenize';
 
-export type Node = ElementNode | TextNode | ExprNode | IfNode | EachNode;
+export type Node = ElementNode | TextNode | ExprNode | IfNode | EachNode | CodeNode;
 
 export interface ElementNode {
   readonly kind: 'element';
@@ -18,6 +18,14 @@ export interface TextNode {
 export interface ExprNode {
   readonly kind: 'expr';
   readonly source: string;
+  readonly pos: number;
+}
+/** Verbatim code from a ``` fence (block) or a `span`. Its text is never parsed or evaluated. */
+export interface CodeNode {
+  readonly kind: 'code';
+  readonly value: string;
+  readonly lang: string;
+  readonly block: boolean;
   readonly pos: number;
 }
 export interface IfBranch {
@@ -78,6 +86,9 @@ export function parse(tokens: readonly Token[], diags: Diagnostics, voidNames: R
         break;
       case 'expr':
         top().children.push({ kind: 'expr', source: tok.source, pos: tok.pos });
+        break;
+      case 'code':
+        top().children.push({ kind: 'code', value: tok.value, lang: tok.lang, block: tok.block, pos: tok.pos });
         break;
       case 'directive': {
         // Elements open no scope, so a directive nested only in elements means the same at the top level. Models often

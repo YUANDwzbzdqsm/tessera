@@ -195,6 +195,26 @@ textarea {
   padding: 1px 5px;
   border-radius: 4px;
 }
+.t-codeblock {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--sunken);
+  overflow: hidden;
+}
+.t-codeblock figcaption {
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+.t-codeblock pre {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  font: 13px/1.55 'Cascadia Mono', Consolas, monospace;
+  tab-size: 4;
+}
 .t-list {
   margin: 0;
   padding-left: 1.3em;

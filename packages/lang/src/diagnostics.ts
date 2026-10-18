@@ -6,6 +6,7 @@ export type DiagnosticCode =
   | 'unclosed_element'
   | 'missing_self_close'
   | 'unclosed_block'
+  | 'unclosed_code'
   | 'mismatched_close'
   | 'stray_block'
   // Catalog contract.

@@ -1,7 +1,7 @@
 import { defineCatalog } from '@tessera/catalog';
 import { describe, expect, it } from 'vitest';
-import { compile, systemPrompt } from '../src/index';
-import { find, render, text } from './helpers';
+import { compile, systemPrompt, toFallbackMarkdown } from '../src/index';
+import { find, render, text, type FakeNode } from './helpers';
 
 const catalog = defineCatalog();
 const codes = (src: string) => compile(src, { catalog }).diagnostics.map((d) => d.code);
@@ -200,6 +200,94 @@ describe('compile: partial sources', () => {
       const r = compile(TEAM.slice(0, i), { catalog });
       expect(() => render(r)).not.toThrow();
     }
+  });
+});
+
+// Code is where braces, <, # and * are everywhere and mean nothing: a Lisp tokenizer answer once lost its whole second
+// half (and the widget at the end) to `"([{"` being read as an expression.
+const PY = [
+  'def tokenize(src):',
+  '    depth = 0',
+  '    for tok in src.replace("(", " ( ").split():',
+  '        depth += 1 if tok in "([{" else -1  # {not an expression} <Box>',
+  '    return {"depth": depth, "ok": depth == 0}',
+  '',
+  '',
+  'print(**{"a": 1})',
+].join('\n');
+const CODE = [
+  '## A tokenizer',
+  'Each `(` opens a list; `{x}` and `<Box>` are just text here.',
+  '```python',
+  PY,
+  '```',
+  '{@state depth = 2}',
+  '<Slider min={0} max={9} value={depth} onChange={setDepth} />',
+  'Depth is **{depth}**.',
+].join('\n');
+
+const all = (nodes: (FakeNode | string)[], type: string): FakeNode[] =>
+  nodes.flatMap((n) => (typeof n === 'string' ? [] : [...(n.type === type ? [n] : []), ...all(n.children, type)]));
+
+describe('compile: code', () => {
+  const program = compile(CODE, { catalog });
+  const { tree } = render(program);
+
+  it('keeps fenced code verbatim and goes on after it', () => {
+    expect(program.diagnostics).toEqual([]);
+    expect(tree.map((n) => (n as FakeNode).type)).toEqual(['Title', 'Text', 'CodeBlock', 'Slider', 'Text']);
+    const block = find(tree, 'CodeBlock')!;
+    expect(block.props.language).toBe('python');
+    expect(text(block)).toBe(PY);
+    expect(find(tree, 'Slider')!.props.value).toBe(2);
+    expect(text(tree[4]!)).toBe('Depth is 2.');
+  });
+
+  it('keeps inline code verbatim', () => {
+    expect(all(tree, 'Code').map(text)).toEqual(['(', '{x}', '<Box>']);
+  });
+
+  it('stores code as data, never as program text', () => {
+    expect(program.constants).toContain(PY);
+    expect(program.code).not.toContain('tokenize');
+  });
+
+  it('shows a half-written block as code on every prefix', () => {
+    const open = CODE.indexOf('```python\n') + '```python\n'.length;
+    for (let i = 0; i <= CODE.length; i++) {
+      const r = compile(CODE.slice(0, i), { catalog });
+      expect(r.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+      const block = find(render(r).tree, 'CodeBlock');
+      if (i >= open && i < CODE.indexOf('\n```\n')) expect(PY.startsWith(text(block!))).toBe(true);
+    }
+  });
+
+  it('warns about a fence that is never closed and shows the rest as code', () => {
+    const r = compile('Intro\n```js\nconst a = {b: 1};\nif (a < b) {}', { catalog });
+    expect(r.diagnostics.map((d) => d.code)).toEqual(['unclosed_code']);
+    expect(text(find(render(r).tree, 'CodeBlock')!)).toBe('const a = {b: 1};\nif (a < b) {}');
+  });
+
+  it('reads ~~~ fences, longer fences and indented fences', () => {
+    expect(text(find(render(compile('~~~md\n```js\nx\n```\n~~~', { catalog })).tree, 'CodeBlock')!)).toBe('```js\nx\n```');
+    expect(text(find(render(compile('````\n```\n````', { catalog })).tree, 'CodeBlock')!)).toBe('```');
+    expect(text(find(render(compile('1. Run:\n   ```sh\n   npm test\n     --watch\n   ```', { catalog })).tree, 'CodeBlock')!)).toBe('npm test\n  --watch');
+  });
+
+  it('leaves a stray backtick as a character', () => {
+    const r = render(compile('Press ` then\n<Button>Go</Button>\n\nnext', { catalog }));
+    expect(find(r.tree, 'Button')).toBeDefined();
+    expect(text(r.tree[0]!)).toContain('Press ` then');
+    expect(text(render(compile('a \\`b\\` c', { catalog })).tree)).toBe('a `b` c');
+  });
+
+  it('writes code back as Markdown in the fallback', () => {
+    const md = toFallbackMarkdown(CODE, { catalog });
+    expect(md).toContain('```python\n' + PY + '\n```');
+    expect(md).toContain('`{x}` and `<Box>`');
+    expect(md).toContain('Depth is **2**.');
+    expect(toFallbackMarkdown('~~~\nuse ``` here\n~~~', { catalog })).toBe('````\nuse ``` here\n````');
+    expect(toFallbackMarkdown('`` a`b ``', { catalog })).toBe('``a`b``');
   });
 });
 

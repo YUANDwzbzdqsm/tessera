@@ -61,4 +61,12 @@ export const cases = [
   { id: 'habit', title: '喝水打卡', prompt: '做一个本周喝水打卡表：周一到周日每天勾选是否喝够 8 杯，并显示完成率。', expect: { ui: true, use: ['Checkbox'] } },
   { id: 'capital', title: '简单事实问答', prompt: '法国的首都是哪里？', expect: { ui: false, contains: ['巴黎'] } },
   { id: 'tcp-udp', title: '概念解释', prompt: '用三句话说清楚 TCP 和 UDP 的区别。', expect: { ui: false } },
+  // Code is full of braces and < that would otherwise be read as expressions and tags.
+  { id: 'py-code', title: '写代码', prompt: '写一个 Python 函数，统计一段文字里每个单词出现的次数，返回字典，并给一个调用示例。', expect: { ui: false, use: ['CodeBlock'], contains: ['def '] } },
+  {
+    id: 'code-and-widget',
+    title: '代码加小工具',
+    prompt: '用 JavaScript 写一个求斐波那契数列第 n 项的函数，再做一个可以拖动 n 的小工具，显示第 n 项的值。',
+    expect: { ui: true, use: ['CodeBlock', 'Slider'], contains: ['function'] },
+  },
 ];

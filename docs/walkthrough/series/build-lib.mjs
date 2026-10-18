@@ -1,9 +1,10 @@
 // Shared build for v2 episodes: real code lines, reference checks, timing report, template fill.
+import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { links, related, series, seriesDiagram } from './common.mjs';
+import { commit, links, related, series, seriesDiagram } from './common.mjs';
 
 const seriesDir = dirname(fileURLToPath(import.meta.url));
 /** The tessera checkout this walkthrough lives in: docs/walkthrough/series → repository root. */
@@ -19,6 +20,14 @@ export async function openRepo() {
   return createServer({ root: repo, configFile: false, logLevel: 'error', appType: 'custom', server: { middlewareMode: true, hmr: false, ws: false, watch: null } });
 }
 
+/**
+ * A file as it was at the commit the scripts were written against, so later changes to the code do not shift the
+ * highlighted lines under the narration.
+ */
+export function readAtCommit(path) {
+  return execFileSync('git', ['show', `${commit}:${path}`], { cwd: repo, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+}
+
 export function readCapture(file) {
   // CRLF checkouts (Windows autocrlf) would otherwise hide every blank line between SSE messages.
   return readFileSync(file, 'utf8').replace(/\r\n/g, '\n').split('\n\n').filter((f) => f.trim());
@@ -28,7 +37,7 @@ export function buildEpisode({ outFile, script, extra = {} }) {
   const { meta, files, stations, chapters, localDiagram } = script;
   const code = {};
   for (const [id, f] of Object.entries(files)) {
-    const lines = readFileSync(join(repo, f.path), 'utf8').replace(/\r\n/g, '\n').split('\n');
+    const lines = readAtCommit(f.path).replace(/\r\n/g, '\n').split('\n');
     code[id] = { path: f.path, start: f.from, lines: lines.slice(f.from - 1, f.to) };
   }
   const diagrams = { series: seriesDiagram, local: localDiagram };
