@@ -1,0 +1,2 @@
+# The SSE captures are split on blank lines; keep them LF in every checkout.
+*.txt text eol=lf

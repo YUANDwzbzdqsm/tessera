@@ -20,7 +20,8 @@ export async function openRepo() {
 }
 
 export function readCapture(file) {
-  return readFileSync(file, 'utf8').split('\n\n').filter((f) => f.trim());
+  // CRLF checkouts (Windows autocrlf) would otherwise hide every blank line between SSE messages.
+  return readFileSync(file, 'utf8').replace(/\r\n/g, '\n').split('\n\n').filter((f) => f.trim());
 }
 
 export function buildEpisode({ outFile, script, extra = {} }) {

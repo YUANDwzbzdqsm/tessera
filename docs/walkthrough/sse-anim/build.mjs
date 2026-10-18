@@ -5,7 +5,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const raw = readFileSync(join(here, 'capture.txt'), 'utf8');
+// CRLF checkouts (Windows autocrlf) would otherwise hide every blank line between SSE messages.
+const raw = readFileSync(join(here, 'capture.txt'), 'utf8').replace(/\r\n/g, '\n');
 const frames = raw
   .split('\n\n')
   .filter((f) => f.trim())
