@@ -1,6 +1,7 @@
 import { imageResult } from '@tessera/catalog';
 import type { TesseraComponents } from '@tessera/react';
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { PullRequestCard } from './PullRequestCard';
 
 // The host's own implementation of every catalog component. The model never sees this code;
 // it only picks components by name and passes props that the catalog has already validated.
@@ -164,4 +165,5 @@ export const components: TesseraComponents = {
   Progress,
   Divider: () => <hr className="t-divider" />,
   Image,
+  PullRequest: PullRequestCard,
 };

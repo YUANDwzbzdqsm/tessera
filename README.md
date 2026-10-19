@@ -208,6 +208,16 @@ systemPrompt(catalog, { data: { p1: product1, p2: product2 } });
 
 **受控输入要保留本地副本。** 回调要先进沙箱、再把新值发回来，中间有一次往返。普通受控 input 在这段时间里会被 React 拉回旧值，所以演示里的 Slider、Checkbox 都先更新本地 state，再等 props 同步（见 `demo/src/components.tsx`）。
 
+### 固定样式的组件
+
+目录里只有组件名和 props，样式全在宿主组件里，所以设计固定的富组件和 Slider 的接法一样：只开放内容类的 props，外观写死在宿主里。演示里的 `<PullRequest>` 是一个例子（示例“合并请求”）：
+
+- **目录**（`demo/src/pullRequest.ts`）：标题、分支、提交数、增删行数、冲突文件，再加一个 `status` 枚举（`opening` → `checking` → `conflicts` / `ready` → `resolving` / `merging` → `merged`，或 `closed`），以及 `onResolve` / `onMerge` 两个事件。
+- **宿主**（`demo/src/PullRequestCard.tsx`）：卡片、按真实像素宽度画的分支图、状态行。状态变化时元素不会重新挂载，颜色、合并线、节点都用 CSS 过渡；合并时合并线会自己画出来。点了按钮先显示“解决中 / 合并中”，等新的 `status` 到了再替换。
+- **状态从哪来**：示例里按钮直接改沙箱里的 `{@state status}`。真实场景里通常写成 `status={pr.status}` 绑定工具数据，宿主换一份 `data` 再交给同一个 `TesseraView`，卡片就会原地过渡到新状态。
+
+数组、对象类型的 prop 会在提示词里写出结构，比如 `conflicts?: { file: string, count: number(0..) }[]`，不会只写一个 `array`。
+
 ## 评测（M5）
 
 `npm run eval` 用真实模型跑 17 个基准提示（`eval/cases.mjs`）。其中 14 个应该出界面：计算器、清单、对比、带图介绍、小测验、代码加小工具等，有 3 个带工具数据。另外 3 个不应该出组件：2 个纯问答，1 个写代码。每条回答走和线上一样的流程：
@@ -333,7 +343,7 @@ npm run eval -- …    # 用真实模型跑基准提示（见“评测（M5）�
 npm run walkthrough  # 重新生成代码导读视频页（见 docs/walkthrough/README.md）
 ```
 
-当前结果：类型检查通过；单元测试 92 项、SES 沙箱测试 9 项、端到端检查 26 项全部通过。端到端截图在 `.e2e/demo.png`。
+当前结果：类型检查通过；单元测试 101 项、SES 沙箱测试 9 项、端到端检查 27 项全部通过。端到端截图在 `.e2e/demo.png`。
 
 M4 相关的关键检查：
 - 商品对比里的价格来自 data 表，编译结果里没有价格。

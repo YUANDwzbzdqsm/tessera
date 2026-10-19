@@ -332,6 +332,453 @@ textarea {
   width: 100%;
 }
 
+/* PullRequest: one fixed design; data-status / data-tone drive every colour so state changes animate */
+.t-pr {
+  --pr-active: #3a6fe0;
+  --pr-warn: #e09a12;
+  --pr-warn-ink: #9a5b00;
+  --pr-warn-bg: #fdf3dc;
+  --pr-ok: #22a35a;
+  --pr-ok-ink: #1c7c44;
+  --pr-ok-bg: #e3f4ea;
+  --pr-merged: #8250df;
+  --pr-merged-bg: #f0e9fc;
+  --pr-closed: #c03030;
+  --pr-closed-bg: #fbe6e6;
+  --pr-dot: #a8b0bd;
+  --pr-rail: #d6dbe4;
+  --pr-tone: var(--pr-active);
+  --pr-branch: var(--pr-active);
+  --pr-ease: 0.45s ease;
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgb(20 27 43 / 0.04);
+}
+.t-pr[data-tone='warn'] {
+  --pr-tone: var(--pr-warn);
+}
+.t-pr[data-tone='ok'] {
+  --pr-tone: var(--pr-ok);
+}
+.t-pr[data-tone='merged'] {
+  --pr-tone: var(--pr-merged);
+  --pr-branch: var(--pr-merged);
+}
+.t-pr[data-tone='closed'] {
+  --pr-tone: var(--pr-dot);
+  --pr-branch: var(--pr-dot);
+}
+.t-pr-svg-icon {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.t-pr-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.t-pr-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--pr-ok-ink);
+  background: var(--pr-ok-bg);
+  transition: color var(--pr-ease), background var(--pr-ease);
+}
+.t-pr[data-status='merged'] .t-pr-icon {
+  color: var(--pr-merged);
+  background: var(--pr-merged-bg);
+}
+.t-pr[data-status='closed'] .t-pr-icon {
+  color: var(--pr-closed);
+  background: var(--pr-closed-bg);
+}
+.t-pr[data-status='opening'] .t-pr-icon {
+  color: var(--muted);
+  background: var(--sunken);
+}
+.t-pr-heading {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.t-pr-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.t-pr-number {
+  font-weight: 400;
+  color: var(--muted);
+}
+.t-pr-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.t-pr-meta code,
+.t-pr-label {
+  font: 12px/1.5 'Cascadia Mono', Consolas, monospace;
+}
+.t-pr-meta code {
+  max-width: 100%;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--sunken);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.t-pr-add {
+  color: var(--pr-ok-ink);
+}
+.t-pr-del {
+  color: var(--pr-closed);
+}
+.t-pr-state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  color: var(--pr-ok-ink);
+  background: var(--pr-ok-bg);
+  animation: t-pr-in 0.35s ease-out;
+}
+.t-pr[data-status='merged'] .t-pr-state {
+  color: var(--pr-merged);
+  background: var(--pr-merged-bg);
+}
+.t-pr[data-status='closed'] .t-pr-state {
+  color: var(--pr-closed);
+  background: var(--pr-closed-bg);
+}
+
+.t-pr-graph {
+  position: relative;
+  border-radius: 10px;
+  background: #f7f8fb;
+  overflow: hidden;
+}
+.t-pr-graph svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+.t-pr-graph path {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.t-pr-rail,
+.t-pr-sync {
+  stroke: var(--pr-rail);
+}
+.t-pr-future {
+  stroke: var(--pr-rail);
+  stroke-dasharray: 2 5;
+  transition: stroke-dasharray 0s 0.6s;
+}
+.t-pr[data-status='merged'] .t-pr-future {
+  stroke-dasharray: none;
+}
+.t-pr-branch {
+  stroke: color-mix(in srgb, var(--pr-branch) 45%, white);
+  transition: stroke var(--pr-ease);
+}
+.t-pr-link {
+  stroke: var(--pr-tone);
+  stroke-dasharray: 2 4;
+  opacity: 0.85;
+  transition: stroke var(--pr-ease), opacity var(--pr-ease);
+}
+.t-pr[data-status='opening'] .t-pr-link,
+.t-pr[data-status='checking'] .t-pr-link,
+.t-pr[data-status='resolving'] .t-pr-link,
+.t-pr[data-status='merging'] .t-pr-link {
+  animation: t-pr-flow 0.9s linear infinite;
+}
+.t-pr[data-status='opening'] .t-pr-link {
+  opacity: 0.45;
+}
+.t-pr[data-status='closed'] .t-pr-link {
+  opacity: 0.35;
+}
+.t-pr[data-status='merged'] .t-pr-link {
+  opacity: 0;
+}
+/* the merge line draws itself in when the status becomes merged */
+.t-pr-link-done {
+  stroke: var(--pr-merged);
+  stroke-width: 2.5 !important;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  transition: stroke-dashoffset 0.7s ease-in-out 0.1s;
+}
+.t-pr[data-status='merged'] .t-pr-link-done {
+  stroke-dashoffset: 0;
+}
+.t-pr-dot {
+  fill: var(--pr-dot);
+}
+.t-pr-commit {
+  fill: var(--pr-branch);
+  transition: fill var(--pr-ease);
+}
+.t-pr-synced {
+  fill: var(--surface);
+  stroke: var(--pr-branch);
+  stroke-width: 2;
+  animation: t-pr-pop 0.4s ease-out;
+  transition: stroke var(--pr-ease);
+}
+.t-pr-node {
+  fill: var(--pr-tone);
+  stroke: var(--pr-tone);
+  stroke-width: 2;
+  transition: fill var(--pr-ease), stroke var(--pr-ease), r 0.3s ease;
+}
+.t-pr[data-status='opening'] .t-pr-node,
+.t-pr[data-status='checking'] .t-pr-node,
+.t-pr[data-status='closed'] .t-pr-node {
+  fill: var(--surface);
+  r: 5px;
+}
+.t-pr[data-status='merged'] .t-pr-node {
+  r: 8px;
+}
+.t-pr-spin {
+  fill: none;
+  stroke: var(--pr-tone);
+  stroke-width: 2 !important;
+  stroke-dasharray: 0.3 0.7;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: t-pr-rotate 0.9s linear infinite;
+}
+.t-pr-glyph {
+  stroke: white !important;
+  stroke-width: 1.8 !important;
+  animation: t-pr-pop 0.35s ease-out;
+}
+.t-pr-label {
+  position: absolute;
+  top: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.t-pr-label-base {
+  padding: 0 6px;
+  border-radius: 6px;
+  color: var(--muted);
+  background: var(--sunken);
+}
+.t-pr-label-branch {
+  transform: translateX(-50%);
+  color: var(--pr-branch);
+  transition: color var(--pr-ease);
+}
+.t-pr-label-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+  animation: t-pr-in 0.35s ease-out;
+}
+.t-pr[data-tone='warn'] .t-pr-label-target {
+  color: var(--pr-warn-ink);
+  background: var(--pr-warn-bg);
+  box-shadow: none;
+}
+.t-pr[data-tone='ok'] .t-pr-label-target {
+  color: var(--pr-ok-ink);
+  background: var(--pr-ok-bg);
+  box-shadow: none;
+}
+.t-pr[data-tone='merged'] .t-pr-label-target {
+  color: var(--pr-merged);
+  background: var(--pr-merged-bg);
+  box-shadow: none;
+}
+
+.t-pr-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 10px;
+  animation: t-pr-in 0.35s ease-out;
+}
+.t-pr-foot-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  color: var(--pr-tone);
+}
+.t-pr[data-tone='warn'] .t-pr-foot-icon {
+  color: var(--pr-warn-ink);
+}
+.t-pr[data-tone='ok'] .t-pr-foot-icon {
+  color: var(--pr-ok-ink);
+}
+.t-pr[data-status='closed'] .t-pr-foot-icon {
+  color: var(--pr-closed);
+}
+/* the icon stays beside the text; only the action button wraps below on a narrow card */
+.t-pr-foot-text {
+  flex: 1 1 0;
+  min-width: 150px;
+  display: grid;
+  gap: 2px;
+}
+.t-pr-foot-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.t-pr-foot-note {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.t-pr-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.t-pr-files li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  background: #f7f8fb;
+  box-shadow: 0 0 0 1px var(--line);
+  transition: opacity var(--pr-ease);
+}
+.t-pr-ext {
+  font: 600 9.5px/1 'Cascadia Mono', Consolas, monospace;
+  color: var(--pr-active);
+}
+.t-pr-count {
+  min-width: 1ch;
+  font-variant-numeric: tabular-nums;
+  color: var(--pr-warn-ink);
+}
+.t-pr-files li[data-done] .t-pr-count {
+  color: var(--pr-ok-ink);
+}
+.t-pr-foot-action {
+  flex: none;
+  margin-left: auto;
+}
+.t-pr-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--surface);
+  background: var(--ink);
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.t-pr-action:hover {
+  background: #2a3348;
+}
+.t-pr-action:active {
+  transform: scale(0.97);
+}
+.t-pr-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.t-pr-busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--sunken);
+}
+.t-pr-spinner {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: t-pr-rotate 0.8s linear infinite;
+}
+@keyframes t-pr-flow {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
+@keyframes t-pr-rotate {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@keyframes t-pr-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+@keyframes t-pr-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+.t-pr-synced,
+.t-pr-glyph {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@media (prefers-reduced-motion: reduce) {
+  .t-pr *,
+  .t-pr {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
 /* streaming bar */
 .stream-bar {
   gap: 8px;
@@ -393,7 +840,8 @@ textarea {
 .preview .t-button,
 .preview .t-caption,
 .preview .t-check,
-.preview .t-badge {
+.preview .t-badge,
+.preview .t-pr {
   animation: t-enter 0.35s ease-out;
 }
 @keyframes t-enter {

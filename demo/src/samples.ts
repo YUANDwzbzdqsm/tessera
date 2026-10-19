@@ -67,6 +67,42 @@ export const samples: readonly Sample[] = [
 <Button onClick={() => ui.send(\`帮我下单 \${cheaper.title}\`)}>就买便宜的</Button>`,
   },
   {
+    id: 'pr',
+    label: '合并请求',
+    // What a git tool would hand the agent. The card's look is the host's; the model only passes these facts on.
+    data: {
+      pr: {
+        title: '会话快过期时在中间件里自动续期',
+        number: 128,
+        branch: 'feat/session-refresh',
+        base: 'main',
+        commits: 3,
+        additions: 128,
+        deletions: 36,
+        behind: 2,
+        conflicts: [
+          { file: 'middleware.ts', count: 1 },
+          { file: 'auth.ts', count: 2 },
+        ],
+      },
+    },
+    source: `## 结账中途掉登录的问题修好了
+PR 已经开出来了，但 \`main\` 在这期间有了新提交，改到了同几行。点卡片上的按钮，看看它怎么变。
+{@state status = "conflicts"}
+<PullRequest
+  title={pr.title} number={pr.number} branch={pr.branch} base={pr.base}
+  commits={pr.commits} additions={pr.additions} deletions={pr.deletions} behind={pr.behind}
+  status={status} synced={status !== "conflicts"} conflicts={pr.conflicts}
+  note={status === "conflicts" ? "main 上的会话密钥轮换改了同几行" : status === "merged" ? "feat/session-refresh 已删除" : "没有冲突，测试、lint 和预览都通过了"}
+  onResolve={() => setStatus("ready")}
+  onMerge={() => setStatus("merged")}
+/>
+{#if status === "merged"}
+已经合并进 \`main\`，可以发版了。
+<Button variant="outline" onClick={() => setStatus("conflicts")}>重新演示</Button>
+{/if}`,
+  },
+  {
     id: 'hang',
     label: '卡死的程序',
     source: `## 卡死的程序会怎样

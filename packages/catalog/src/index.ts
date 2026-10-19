@@ -299,9 +299,23 @@ function describeJson(json: Record<string, unknown>): string {
   if (Array.isArray(json.anyOf)) return (json.anyOf as Record<string, unknown>[]).map(describeJson).join(' | ');
   const type = json.type;
   if (type === 'number' || type === 'integer') {
-    const lo = json.minimum ?? json.exclusiveMinimum;
-    const hi = json.maximum ?? json.exclusiveMaximum;
+    // `.int()` adds the safe-integer range as bounds; that is noise, not a limit worth telling the model.
+    const bound = (v: unknown) => (typeof v === 'number' && Math.abs(v) < Number.MAX_SAFE_INTEGER ? v : undefined);
+    const lo = bound(json.minimum ?? json.exclusiveMinimum);
+    const hi = bound(json.maximum ?? json.exclusiveMaximum);
     return lo !== undefined || hi !== undefined ? `number(${lo ?? ''}..${hi ?? ''})` : 'number';
+  }
+  // Spell out element and field shapes: a bare `array` leaves the model guessing what goes inside.
+  if (type === 'array' && json.items && typeof json.items === 'object') {
+    const item = describeJson(json.items as Record<string, unknown>);
+    return item.includes(' | ') ? `(${item})[]` : `${item}[]`;
+  }
+  if (type === 'object' && json.properties && typeof json.properties === 'object') {
+    const required = new Set(Array.isArray(json.required) ? (json.required as string[]) : []);
+    const fields = Object.entries(json.properties as Record<string, Record<string, unknown>>).map(
+      ([name, field]) => `${name}${required.has(name) ? '' : '?'}: ${describeJson(field)}`,
+    );
+    return `{ ${fields.join(', ')} }`;
   }
   if (typeof type === 'string') return type;
   return 'any';

@@ -143,6 +143,24 @@ console.log(`phase 1: production build at ${staticServer.resolvedUrls.local[0]}`
     await page.getByRole('tab', { name: /诊断/ }).click();
   });
 
+  await check('a fixed-design component steps through its states: conflicts -> ready -> merged, inside the sandbox', async () => {
+    await page.getByRole('button', { name: '合并请求' }).click();
+    const card = (status) => pane.locator(`article.t-pr[data-status="${status}"]`);
+    await card('conflicts').waitFor({ timeout: 10_000 });
+    await waitText(pane, '与 main 有 3 处冲突');
+    const calls = await modelCalls.innerText();
+    await pane.getByRole('button', { name: '解决冲突' }).click();
+    await card('ready').waitFor({ timeout: 5_000 });
+    // main was merged into the branch: the graph gains the synced commit
+    await card('ready').locator('.t-pr-synced').waitFor({ timeout: 5_000 });
+    await pane.getByRole('button', { name: '合并', exact: true }).click();
+    await card('merged').waitFor({ timeout: 5_000 });
+    await waitText(pane, '已合并到 main');
+    await expectText(modelCalls, calls);
+    await pane.getByRole('button', { name: '重新演示' }).click();
+    await card('conflicts').waitFor({ timeout: 5_000 });
+  });
+
   await check('normal flows report no host or runtime issues (props removed on switch are not sent as "")', async () => {
     // The flow above switched team -> checklist -> broken: Box lost padding/border, Title/Text were reused.
     const issues = (await page.getByTestId('log').innerText()).split('\n').filter((l) => /^\[(host|runtime)\]/.test(l.trim()));
