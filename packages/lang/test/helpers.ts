@@ -3,6 +3,8 @@ import type { CompiledProgram } from '../src/index';
 export interface FakeNode {
   type: string;
   props: Record<string, unknown>;
+  /** The `__site` the program passed, kept out of `props` as the runtime does. */
+  site?: string;
   children: (FakeNode | string)[];
 }
 
@@ -18,7 +20,8 @@ export function render(program: CompiledProgram, state = new Map<string, unknown
   const h = (type: string | symbol, props: Record<string, unknown> | null, ...kids: unknown[]): FakeNode | FakeNode[] => {
     const children = flatten(kids);
     if (type === FRAGMENT) return children as FakeNode[];
-    return { type: type as string, props: props ?? {}, children };
+    const { __site: site, ...rest } = props ?? {};
+    return { type: type as string, props: rest, ...(site === undefined ? {} : { site: site as string }), children };
   };
   const ui = {
     api: { send: (t: string) => sent.push(t), copy() {}, open() {} },

@@ -88,7 +88,7 @@ export function createRuntime(): RuntimeApi {
 
   /**
    * The `h` a program calls: catalog name -> custom element whose declared props travel as one `props` object,
-   * and event props -> listeners that pass event.detail.
+   * event props -> listeners that pass event.detail, and the compiler's `__site` -> the element's `site` property.
    */
   const h = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => {
     if (type === Fragment) return createElement(Fragment, props, ...(children as []));
@@ -103,6 +103,11 @@ export function createRuntime(): RuntimeApi {
       if (value === undefined) continue;
       if (key === 'key') {
         out.key = value;
+        continue;
+      }
+      // Beside `props`, not in it: a site never changes, so it costs one update when the element first appears.
+      if (key === '__site') {
+        if (typeof value === 'string') out.site = value;
         continue;
       }
       const event = wire.events.find((e) => e.prop === key);
@@ -136,7 +141,7 @@ export function createRuntime(): RuntimeApi {
         customElements.define(
           wire.tag,
           createRemoteElement({
-            properties: { props: { attribute: false } },
+            properties: { props: { attribute: false }, site: { attribute: false } },
             events: wire.events.map((e) => e.event),
           }),
         );
