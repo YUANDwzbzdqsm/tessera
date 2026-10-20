@@ -1,3 +1,5 @@
+@import './components.css';
+
 :root {
   --bg: #f4f6f9;
   --surface: #ffffff;
@@ -9,6 +11,7 @@
   --ok: #1c7c44;
   --warn: #9a5b00;
   --bad: #c03030;
+  --mono: 'Cascadia Mono', Consolas, monospace;
   color-scheme: light;
   font-family: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
   color: var(--ink);
@@ -162,176 +165,6 @@ textarea {
   font-size: 13px;
 }
 
-/* host components */
-.t-title {
-  font-weight: 700;
-  line-height: 1.3;
-}
-.t-title-xl {
-  font-size: 30px;
-  font-variant-numeric: tabular-nums;
-}
-.t-title-lg {
-  font-size: 20px;
-}
-.t-title-md {
-  font-size: 17px;
-}
-.t-title-sm {
-  font-size: 15px;
-}
-.t-text {
-  margin: 0;
-  white-space: pre-line;
-  line-height: 1.7;
-}
-.t-caption {
-  font-size: 13px;
-  color: var(--muted);
-}
-.t-code {
-  font-family: 'Cascadia Mono', Consolas, monospace;
-  background: var(--sunken);
-  padding: 1px 5px;
-  border-radius: 4px;
-}
-.t-codeblock {
-  margin: 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--sunken);
-  overflow: hidden;
-}
-.t-codeblock figcaption {
-  padding: 4px 12px;
-  font-size: 12px;
-  color: var(--muted);
-  border-bottom: 1px solid var(--line);
-}
-.t-codeblock pre {
-  margin: 0;
-  padding: 10px 12px;
-  overflow-x: auto;
-  font: 13px/1.55 'Cascadia Mono', Consolas, monospace;
-  tab-size: 4;
-}
-.t-list {
-  margin: 0;
-  padding-left: 1.3em;
-  line-height: 1.8;
-}
-.t-box {
-  display: flex;
-}
-.t-box-border {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-}
-.t-slider {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.t-slider input {
-  flex: 1;
-  accent-color: var(--accent);
-}
-.t-slider output {
-  min-width: 2.5em;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-}
-.t-slider-label {
-  font-size: 14px;
-  color: var(--muted);
-}
-.t-check {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.t-button {
-  align-self: flex-start;
-  border-radius: 999px;
-  padding: 8px 16px;
-  font: inherit;
-  font-size: 14px;
-  cursor: pointer;
-  border: 1px solid var(--ink);
-}
-.t-button-solid {
-  background: var(--ink);
-  color: var(--surface);
-}
-.t-button-outline {
-  background: transparent;
-}
-.t-button-ghost {
-  background: transparent;
-  border-color: transparent;
-}
-.t-badge {
-  display: inline-block;
-  align-self: flex-start;
-  font-size: 12px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: var(--sunken);
-}
-.t-badge-success {
-  background: #e2f2e8;
-  color: var(--ok);
-}
-.t-badge-warning {
-  background: #fdf0d8;
-  color: var(--warn);
-}
-.t-badge-danger {
-  background: #fbe6e6;
-  color: var(--bad);
-}
-.t-badge-info {
-  background: #e4ebfc;
-  color: var(--accent);
-}
-.t-progress {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.t-progress-track {
-  height: 10px;
-  border-radius: 999px;
-  background: var(--sunken);
-  overflow: hidden;
-}
-.t-progress-fill {
-  height: 100%;
-  border-radius: 999px;
-  transition: width 0.2s ease;
-}
-.t-progress-neutral {
-  background: var(--muted);
-}
-.t-progress-info {
-  background: var(--accent);
-}
-.t-progress-success {
-  background: var(--ok);
-}
-.t-progress-warning {
-  background: var(--warn);
-}
-.t-progress-danger {
-  background: var(--bad);
-}
-.t-divider {
-  border: 0;
-  border-top: 1px solid var(--line);
-  width: 100%;
-}
-
 /* streaming bar */
 .stream-bar {
   gap: 8px;
@@ -393,7 +226,8 @@ textarea {
 .preview .t-button,
 .preview .t-caption,
 .preview .t-check,
-.preview .t-badge {
+.preview .t-badge,
+.preview .t-pr {
   animation: t-enter 0.35s ease-out;
 }
 @keyframes t-enter {
@@ -416,32 +250,4 @@ textarea {
   font: inherit;
   font-size: 14px;
   cursor: pointer;
-}
-
-/* server-resolved images */
-.t-image {
-  margin: 0;
-  width: 100%;
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--sunken);
-  display: grid;
-  place-items: center;
-}
-.t-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.t-image-pending {
-  font-size: 12px;
-  color: var(--muted);
-  padding: 8px;
-  text-align: center;
-}
-/* side-by-side cards share the row */
-.t-box[style*='flex-direction: row'] > .t-box {
-  flex: 1;
-  min-width: 0;
 }

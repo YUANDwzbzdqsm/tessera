@@ -1,5 +1,5 @@
 export { TesseraView, type TesseraIssue, type TesseraViewProps } from './TesseraView';
-export type { HostIssue, TesseraComponents } from './RemoteTree';
+export { useTesseraSite, type HostIssue, type TesseraComponents } from './RemoteTree';
 export { SandboxController, type ControllerIssue, type ControllerIssueCode, type ControllerOptions, type WatchdogOptions } from './controller';
 export {
   RUNNER_HTML,

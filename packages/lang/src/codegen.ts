@@ -1,6 +1,7 @@
 import { RESOLVED_PROP, type Catalog } from '@tessera/catalog';
 import type { Diagnostics } from './diagnostics';
 import { ALLOWED_GLOBALS, guardExpression, missingBindingPaths } from './guard';
+import type { SiteInfo } from './manifest';
 import type { UIEach, UIElement, UIIf, UINode } from './markdown';
 import type { Directive } from './parse';
 import { resolutionFor, type Resolution } from './resolve';
@@ -13,7 +14,21 @@ interface Ctx {
   readonly data: Readonly<Record<string, unknown>>;
   readonly bindings: ReadonlySet<string>;
   readonly resolutions: Resolution[];
+  /** Filled with every component in source order, plus the declared names: the manifest. */
+  readonly sites: SiteInfo[];
+  readonly state: string[];
+  readonly lets: string[];
 }
+
+/** Where codegen is in the tree, for the sites it records. */
+interface Place {
+  readonly parent: number | null;
+  /** The hidden index variable of each enclosing {#each}, outermost first. */
+  readonly loops: readonly string[];
+  readonly conditional: boolean;
+}
+
+const TOP: Place = { parent: null, loops: [], conditional: false };
 
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 
@@ -32,6 +47,8 @@ const EACH = /^([\s\S]+?)\s+as\s+([A-Za-z_$][\w$]*)(?:\s*,\s*([A-Za-z_$][\w$]*))
  * - Tool results live in the data table and are read by name, so values on screen are never retyped by the model.
  * - Every expression is wrapped in __safe, so a throwing expression removes one value instead of the whole render.
  * - State is keyed by its name, so its value survives a recompile.
+ * - Every component gets a `__site` prop, its index in source order, so the host can tell components apart
+ *   across recompiles and restarts. The runtime passes it on beside the props, not among them.
  */
 export function generate(directives: readonly Directive[], nodes: readonly UINode[], ctx: Ctx): string {
   const scope = new Set<string>(ctx.bindings);
@@ -51,13 +68,15 @@ export function generate(directives: readonly Directive[], nodes: readonly UINod
     if (d.kind === 'state') {
       lines.push(`const [${d.name}, ${setter}] = __ui.useState(${JSON.stringify(d.name)}, () => __safe(() => (${value}), undefined));`);
       scope.add(d.name).add(setter!);
+      ctx.state.push(d.name);
     } else {
       lines.push(`const ${d.name} = __safe(() => (${value}), undefined);`);
       scope.add(d.name);
+      ctx.lets.push(d.name);
     }
   }
 
-  const body = children(nodes, scope, ctx);
+  const body = children(nodes, scope, ctx, TOP);
   return [
     '(function (__h, __F, __ui, __C, __safe, __D) {',
     '  "use strict";',
@@ -72,16 +91,16 @@ export function generate(directives: readonly Directive[], nodes: readonly UINod
 }
 
 /** Comma-prefixed list of child expressions, ready to append to an __h(...) call. */
-function children(nodes: readonly UINode[], scope: ReadonlySet<string>, ctx: Ctx): string {
+function children(nodes: readonly UINode[], scope: ReadonlySet<string>, ctx: Ctx, at: Place): string {
   let out = '';
   for (const n of nodes) {
-    const code = node(n, scope, ctx);
+    const code = node(n, scope, ctx, at);
     if (code) out += ', ' + code;
   }
   return out;
 }
 
-function node(n: UINode, scope: ReadonlySet<string>, ctx: Ctx): string | null {
+function node(n: UINode, scope: ReadonlySet<string>, ctx: Ctx, at: Place): string | null {
   switch (n.kind) {
     case 'text':
       return n.value ? `__C[${ctx.constants.push(n.value) - 1}]` : null;
@@ -90,16 +109,33 @@ function node(n: UINode, scope: ReadonlySet<string>, ctx: Ctx): string | null {
       return src === null ? null : `__ui.value(__safe(() => (${src}), null))`;
     }
     case 'el':
-      return element(n, scope, ctx);
+      return element(n, scope, ctx, at);
     case 'if':
-      return ifBlock(n, scope, ctx);
+      return ifBlock(n, scope, ctx, at);
     case 'each':
-      return eachBlock(n, scope, ctx);
+      return eachBlock(n, scope, ctx, at);
   }
 }
 
-function element(n: UIElement, scope: ReadonlySet<string>, ctx: Ctx): string {
+function element(n: UIElement, scope: ReadonlySet<string>, ctx: Ctx, at: Place): string {
   const spec = ctx.catalog.get(n.name)!;
+  // Recorded before the children, so sites follow source order.
+  const site = ctx.sites.length;
+  const literalProps: Record<string, unknown> = {};
+  const dynamicProps: string[] = [];
+  const events: string[] = [];
+  ctx.sites.push({
+    site,
+    component: n.name,
+    parent: at.parent,
+    origin: n.pos < 0 ? 'markdown' : 'tag',
+    pos: n.pos,
+    literalProps,
+    dynamicProps,
+    events,
+    loopDepth: at.loops.length,
+    conditional: at.conditional,
+  });
   const props: string[] = [];
   for (const attr of n.attrs) {
     const isEvent = spec.events.includes(attr.name);
@@ -114,6 +150,10 @@ function element(n: UIElement, scope: ReadonlySet<string>, ctx: Ctx): string {
       checkFields(guard.ast, attr.pos, ctx);
       if (guard.literal && !validLiteral(n.name, attr.name, guard.literal.value, attr.pos, ctx)) continue;
       props.push(`${key}: __safe(() => (${attr.value.source}), undefined)`);
+      if (isEvent) {
+        if (!guard.literal) events.push(attr.name);
+      } else if (guard.literal) literalProps[attr.name] = guard.literal.value;
+      else dynamicProps.push(attr.name);
       continue;
     }
     const value = attr.value.kind === 'string' ? attr.value.value : true;
@@ -123,6 +163,7 @@ function element(n: UIElement, scope: ReadonlySet<string>, ctx: Ctx): string {
     }
     if (!validLiteral(n.name, attr.name, value, attr.pos, ctx)) continue;
     props.push(`${key}: ${JSON.stringify(value)}`);
+    literalProps[attr.name] = value;
   }
   const resolution = resolutionFor(spec, n.attrs, (source) => guardExpression(source, scope).literal);
   if (resolution && 'dynamic' in resolution) {
@@ -132,29 +173,38 @@ function element(n: UIElement, scope: ReadonlySet<string>, ctx: Ctx): string {
     if (!ctx.resolutions.some((r) => r.key === resolution.key)) ctx.resolutions.push(resolution);
     props.push(`${JSON.stringify(RESOLVED_PROP)}: __safe(() => __D[${JSON.stringify(resolution.key)}], undefined)`);
   }
-  const propsCode = props.length ? `{ ${props.join(', ')} }` : 'null';
-  return `__h(${JSON.stringify(n.name)}, ${propsCode}${children(n.children, scope, ctx)})`;
+  // Outside loops the site is a constant; inside, each item gets its own instance id: "4:0", "4:1", nested "4:1.0".
+  props.push(`"__site": ${at.loops.length ? `${JSON.stringify(`${site}:`)} + ${at.loops.join(' + "." + ')}` : JSON.stringify(String(site))}`);
+  return `__h(${JSON.stringify(n.name)}, { ${props.join(', ')} }${children(n.children, scope, ctx, { ...at, parent: site })})`;
 }
 
-function ifBlock(n: UIIf, scope: ReadonlySet<string>, ctx: Ctx): string | null {
+function ifBlock(n: UIIf, scope: ReadonlySet<string>, ctx: Ctx, at: Place): string | null {
+  // Branches are compiled in source order, which keeps the sites inside them in source order too.
+  const inner: Place = { ...at, conditional: true };
+  const compiled = n.branches.map((b) => ({
+    test: b.test === null ? null : checked(b.test, scope, b.pos, ctx),
+    otherwise: b.test === null,
+    frag: `__h(__F, null${children(b.children, scope, ctx, inner)})`,
+  }));
   let code = 'null';
-  for (let i = n.branches.length - 1; i >= 0; i--) {
-    const b = n.branches[i]!;
-    const frag = `__h(__F, null${children(b.children, scope, ctx)})`;
-    if (b.test === null) {
-      code = frag;
-      continue;
-    }
-    const test = checked(b.test, scope, b.pos, ctx);
-    if (test !== null) code = `(${test}) ? ${frag} : ${code}`;
+  for (let i = compiled.length - 1; i >= 0; i--) {
+    const b = compiled[i]!;
+    if (b.otherwise) code = b.frag;
+    else if (b.test !== null) code = `(${b.test}) ? ${b.frag} : ${code}`;
   }
   return code === 'null' ? null : `__safe(() => ${code}, null)`;
 }
 
-function eachBlock(n: UIEach, scope: ReadonlySet<string>, ctx: Ctx): string | null {
+function eachBlock(n: UIEach, scope: ReadonlySet<string>, ctx: Ctx, at: Place): string | null {
   const m = EACH.exec(n.source);
   if (!m) {
     ctx.diags.error('invalid_expression', `{#each ${n.source}} must look like {#each list as item, i}`, n.pos);
+    return null;
+  }
+  // `__` names are the program's own; a loop variable named like one would shadow it.
+  const reserved = [m[2]!, m[3]].find((name) => name?.startsWith('__'));
+  if (reserved) {
+    ctx.diags.error('reserved_name', `${reserved} is reserved; the {#each} block was dropped`, n.pos);
     return null;
   }
   const list = checked(m[1]!, scope, n.pos, ctx);
@@ -162,7 +212,10 @@ function eachBlock(n: UIEach, scope: ReadonlySet<string>, ctx: Ctx): string | nu
   const item = m[2]!;
   const index = m[3] ?? '__i';
   const inner = new Set(scope).add(item).add(index);
-  return `__safe(() => Array.from(${list}).map((${item}, ${index}) => __h(__F, { key: ${index} }${children(n.children, inner, ctx)})), null)`;
+  // A hidden copy of the index per loop level: the model may reuse one index name in nested loops.
+  const hidden = `__k${at.loops.length}`;
+  const body = children(n.children, inner, ctx, { ...at, loops: [...at.loops, hidden] });
+  return `__safe(() => Array.from(${list}).map((${item}, ${index}) => { const ${hidden} = ${index}; return __h(__F, { key: ${index} }${body}); }), null)`;
 }
 
 /** Returns the source when it passes the guard, otherwise reports and returns null. */

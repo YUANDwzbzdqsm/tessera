@@ -32,6 +32,19 @@ describe('catalog', () => {
     expect(text).toContain('<Box direction?: "column" | "row"');
   });
 
+  it('spells out array elements and object fields in the description', () => {
+    const files = defineComponent({
+      name: 'Files',
+      description: 'Changed files.',
+      props: z.object({
+        files: z.array(z.object({ path: z.string(), count: z.number().int().min(0).optional() })),
+        tags: z.array(z.enum(['a', 'b'])).optional(),
+      }),
+    });
+    const text = defineCatalog([files]).describe();
+    expect(text).toContain('<Files files: { path: string, count?: number(0..) }[], tags?: ("a" | "b")[]>');
+  });
+
   it('wires only serialisable data to the worker', () => {
     const slider = catalog.wire().find((w) => w.name === 'Slider');
     expect(slider).toEqual({

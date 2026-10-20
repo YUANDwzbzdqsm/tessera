@@ -6,6 +6,22 @@ export interface Sample {
   readonly data?: Readonly<Record<string, unknown>>;
 }
 
+/** What a git tool would hand the agent. The card's look is the host's; the model only passes these facts on. */
+const pr = {
+  title: '会话快过期时在中间件里自动续期',
+  number: 128,
+  branch: 'feat/session-refresh',
+  base: 'main',
+  commits: 3,
+  additions: 128,
+  deletions: 36,
+  behind: 2,
+  conflicts: [
+    { file: 'middleware.ts', count: 1 },
+    { file: 'auth.ts', count: 2 },
+  ],
+};
+
 export const samples: readonly Sample[] = [
   {
     id: 'team',
@@ -65,6 +81,65 @@ export const samples: readonly Sample[] = [
 </Box>
 更便宜的是 **{cheaper.title}**，便宜 {Math.abs(p1.priceValue - p2.priceValue)} 元。
 <Button onClick={() => ui.send(\`帮我下单 \${cheaper.title}\`)}>就买便宜的</Button>`,
+  },
+  {
+    id: 'pr',
+    label: '合并请求',
+    data: { pr },
+    source: `## 结账中途掉登录的问题修好了
+PR 已经开出来了，但 \`main\` 在这期间有了新提交，改到了同几行。点卡片上的按钮，看看它怎么变。
+{@state status = "conflicts"}
+<PullRequest
+  title={pr.title} number={pr.number} branch={pr.branch} base={pr.base}
+  commits={pr.commits} additions={pr.additions} deletions={pr.deletions} behind={pr.behind}
+  status={status} synced={status !== "conflicts"} conflicts={pr.conflicts}
+  note={status === "conflicts" ? "main 上的会话密钥轮换改了同几行" : status === "merged" ? "feat/session-refresh 已删除" : "没有冲突，测试、lint 和预览都通过了"}
+  onResolve={() => setStatus("ready")}
+  onMerge={() => setStatus("merged")}
+/>
+{#if status === "merged"}
+已经合并进 \`main\`，可以发版了。
+<Button variant="outline" onClick={() => setStatus("conflicts")}>重新演示</Button>
+{/if}`,
+  },
+  {
+    id: 'pr-states',
+    label: 'PR 状态切换',
+    data: { pr },
+    // Every knob the card has, driven from in-sandbox state: switch statuses to watch the transitions.
+    source: `## PullRequest 卡片的所有状态
+按顺序点状态，看卡片怎么过渡；滑块和勾选改分支图的形状。
+{@state status = "conflicts"}
+{@state commits = 3}
+{@state behind = 2}
+{@state remaining = 3}
+{@state synced = false}
+{@let states = [["opening", "创建中"], ["checking", "检查中"], ["conflicts", "有冲突"], ["resolving", "解决中"], ["ready", "可以合并"], ["merging", "合并中"], ["merged", "已合并"], ["closed", "已关闭"]]}
+<PullRequest
+  title={pr.title} number={pr.number} branch={pr.branch} base={pr.base}
+  commits={commits} additions={pr.additions} deletions={pr.deletions} behind={behind} synced={synced} status={status}
+  conflicts={[{ file: "middleware.ts", count: Math.min(remaining, 1) }, { file: "auth.ts", count: Math.max(remaining - 1, 0) }]}
+  note={status === "conflicts" || status === "resolving" ? "main 上的会话密钥轮换改了同几行" : status === "ready" || status === "merging" ? "没有冲突，测试、lint 和预览都通过了" : status === "merged" ? "feat/session-refresh 已删除" : ""}
+  onResolve={() => setStatus("resolving")}
+  onMerge={() => setStatus("merging")}
+/>
+<Box border padding={3} gap={2}>
+<Caption>状态</Caption>
+<Box direction="row" gap={1}>
+{#each states.slice(0, 4) as s}
+<Button variant={status === s[0] ? "solid" : "outline"} onClick={() => setStatus(s[0])}>{s[1]}</Button>
+{/each}
+</Box>
+<Box direction="row" gap={1}>
+{#each states.slice(4) as s}
+<Button variant={status === s[0] ? "solid" : "outline"} onClick={() => setStatus(s[0])}>{s[1]}</Button>
+{/each}
+</Box>
+<Slider label="分支上的提交" min={1} max={5} value={commits} onChange={setCommits} />
+<Slider label="main 新增的提交" min={0} max={4} value={behind} onChange={setBehind} />
+<Slider label="剩余冲突" min={0} max={3} value={remaining} onChange={setRemaining} />
+<Checkbox label="main 已合进分支" checked={synced} onChange={setSynced} />
+</Box>`,
   },
   {
     id: 'hang',

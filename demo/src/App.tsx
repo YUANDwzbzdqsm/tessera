@@ -60,13 +60,21 @@ const KIND_TEXT: Record<UpdateKind, string> = {
 
 let nextLogId = 0;
 
+function dataOf(sampleId: string): Readonly<Record<string, unknown>> {
+  return samples.find((s) => s.id === sampleId)?.data ?? {};
+}
+
 export function App() {
   const [sampleId, setSampleId] = useState(samples[0]!.id);
   const [source, setSource] = useState(samples[0]!.source);
   const deferred = useDeferredValue(source);
+  const deferredSampleId = useDeferredValue(sampleId);
   // The tool results the current sample's answer may refer to, as a search tool would have returned them.
-  const sampleData = useMemo(() => samples.find((s) => s.id === sampleId)?.data ?? {}, [sampleId]);
-  const local = useMemo(() => compile(deferred, { catalog, data: sampleData }), [deferred, sampleData]);
+  const sampleData = useMemo(() => dataOf(sampleId), [sampleId]);
+  // The deferred source is compiled with its own sample's data. Right after a switch the source still lags one
+  // render; pairing it with the new sample's data would drop its data names, and a @let built on them throws.
+  const compiledData = useMemo(() => dataOf(deferredSampleId), [deferredSampleId]);
+  const local = useMemo(() => compile(deferred, { catalog, data: compiledData }), [deferred, compiledData]);
 
   // Local compiles resolve their images here; streamed answers get them from the server instead.
   const [resolved, setResolved] = useState<Record<string, unknown>>({});
@@ -80,7 +88,7 @@ export function App() {
       setResolved((prev) => ({ ...prev, ...found }));
     });
   }, [local.resolutions, resolved]);
-  const localData = useMemo(() => ({ ...sampleData, ...resolved }), [sampleData, resolved]);
+  const localData = useMemo(() => ({ ...compiledData, ...resolved }), [compiledData, resolved]);
   const [tab, setTab] = useState<Tab>('diagnostics');
   const [log, setLog] = useState<LogEntry[]>([]);
   const [sends, setSends] = useState(0);

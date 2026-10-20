@@ -25,7 +25,7 @@ function tokens(src: string): string[] {
   return src.match(/\s*(?:[A-Za-z_$]+|\d{1,3}|[一-鿿]{1,2}|[^\sA-Za-z0-9_$一-鿿]{1,3})|\s+$/g) ?? [];
 }
 
-async function* fakeModel(source: string, cps: number, signal: AbortSignal): AsyncGenerator<string> {
+export async function* fakeModel(source: string, cps: number, signal: AbortSignal): AsyncGenerator<string> {
   for (const token of tokens(source)) {
     if (signal.aborted) return;
     await new Promise((resolve) => setTimeout(resolve, (token.length / cps) * 1000));

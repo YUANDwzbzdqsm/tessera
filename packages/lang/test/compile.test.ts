@@ -1,4 +1,4 @@
-import { defineCatalog } from '@tessera/catalog';
+import { defineCatalog, starterComponents } from '@tessera/catalog';
 import { describe, expect, it } from 'vitest';
 import { compile, systemPrompt, toFallbackMarkdown } from '../src/index';
 import { find, render, text, type FakeNode } from './helpers';
@@ -302,5 +302,18 @@ describe('systemPrompt', () => {
   it('ships an example that compiles cleanly', () => {
     const example = systemPrompt(catalog).split('Example\n')[1]!;
     expect(compile(example, { catalog }).diagnostics).toEqual([]);
+  });
+
+  it('lets a host replace the intro and leave out rules that do not apply to it', () => {
+    const p = systemPrompt(catalog, { intro: 'Call render_ui with Tessera markup.', toolData: false });
+    expect(p.startsWith('Call render_ui with Tessera markup.\n\nSyntax\n')).toBe(true);
+    expect(p).not.toContain('You can answer with an interactive interface');
+    expect(p).not.toContain('Tool results are available by name');
+    // The default catalog has <Image>, so the rule about server-resolved components stays.
+    expect(p).toContain('resolved by the server');
+    const noImage = defineCatalog(starterComponents.filter((c) => c.name !== 'Image'));
+    expect(systemPrompt(noImage)).not.toContain('resolved by the server');
+    expect(systemPrompt(noImage)).toContain('always self-closing: <Divider />, <Slider … />, <Progress … />.');
+    expect(systemPrompt(noImage)).toContain('Tool results are available by name');
   });
 });

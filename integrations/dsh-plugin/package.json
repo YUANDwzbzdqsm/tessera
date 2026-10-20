@@ -1,0 +1,37 @@
+{
+  "name": "dsh-plugin-tessera",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tessera interfaces inside DeepSeek Harness chats: a render_ui tool for the model and a sandboxed chat row that draws it, live while the model writes.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "devDependencies": {
+    "@tessera/catalog": "0.1.0",
+    "@tessera/lang": "0.1.0",
+    "@tessera/react": "0.1.0",
+    "@tessera/runtime": "0.1.0"
+  },
+  "license": "MIT"
+}

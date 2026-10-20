@@ -40,7 +40,13 @@ export interface RenderResult {
   readonly error?: string;
 }
 
-/** What the sandbox worker exposes to the host. */
+/**
+ * What the sandbox worker exposes to the host.
+ *
+ * Each component reaches the host as a remote element with two properties: `props`, its declared props as one
+ * object, and `site`, its id within the answer from the compiler's manifest (`"4"`, or `"4:1"` for an item of
+ * `{#each}`). Both come from the untrusted program, so the host checks them before use.
+ */
 export interface RuntimeApi {
   /** `initialState` seeds the keyed state, e.g. what the host saved before a restart or a page reload. */
   mount(

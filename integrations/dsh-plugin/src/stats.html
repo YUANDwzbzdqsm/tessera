@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tessera 统计</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1f1f1d; --muted: #6b6a66; --line: #e4e2dc;
+    --accent: #3b6fd8; --bar: #c9d8f5; --warn: #b5541d; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1b1b1a; --panel: #242423; --text: #ecebe6; --muted: #a09e97; --line: #3a3936; --accent: #8fb1f5; --bar: #34476e; --warn: #f0a070; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; margin-bottom: 16px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0; }
+  h2 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
+  .muted { color: var(--muted); }
+  .spacer { flex: 1; }
+  button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .tile b { display: block; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 16px; min-width: 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .grid > section { margin-bottom: 0; }
+  .grid + section, .grid + .grid { margin-top: 16px; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 500; color: var(--muted); white-space: nowrap; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  code, .mono { font-family: var(--mono); font-size: 12.5px; }
+  .bar { position: relative; }
+  .bar span { position: absolute; inset: 3px auto 3px 0; background: var(--bar); border-radius: 3px; z-index: 0; }
+  .bar em { position: relative; z-index: 1; font-style: normal; }
+  tr.view { cursor: pointer; }
+  tr.view:hover td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  tr.detail > td { background: var(--bg); padding: 8px 12px 12px; }
+  .warn { color: var(--warn); }
+  .empty { padding: 32px 16px; text-align: center; color: var(--muted); }
+  pre { margin: 0; white-space: pre-wrap; word-break: break-all; font-family: var(--mono); font-size: 12px; max-height: 360px; overflow: auto; }
+  details > summary { cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Tessera 统计</h1>
+    <span class="muted" id="status">读取中…</span>
+    <span class="spacer"></span>
+    <label class="muted"><input type="checkbox" id="auto" checked> 自动刷新</label>
+    <button id="refresh" type="button">刷新</button>
+    <button id="clear" type="button">清空数据</button>
+  </header>
+  <div id="app"></div>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const seconds = (ms) => {
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(s < 10 && s % 1 ? 1 : 0)} 秒`;
+  return `${Math.floor(s / 60)} 分 ${Math.round(s % 60)} 秒`;
+};
+const time = (ts) => new Date(ts).toLocaleString('zh-CN', { hour12: false });
+const ago = (ts) => {
+  const s = Math.round((Date.now() - ts) / 1000);
+  return s < 60 ? `${s} 秒前` : s < 3600 ? `${Math.round(s / 60)} 分钟前` : time(ts);
+};
+// Every refresh redraws the page, so what the reader opened is remembered here.
+const open = new Set();
+let rawOpen = false;
+
+function bars(rows, label, empty) {
+  if (!rows.length) return `<p class="muted">${empty}</p>`;
+  const max = Math.max(...rows.map((r) => r.count));
+  return `<table><thead><tr><th>${label}</th><th class="num">次数</th></tr></thead><tbody>${rows
+    .map((r) => `<tr><td class="bar"><span style="width:${(r.count / max) * 100}%"></span><em><code>${esc(r.key)}</code></em></td><td class="num">${r.count}</td></tr>`)
+    .join('')}</tbody></table>`;
+}
+
+function components(rows) {
+  if (!rows.length) return '<p class="muted">还没有生成过界面。</p>';
+  return `<div class="scroll"><table><thead><tr>
+    <th>组件</th><th class="num">用到它的界面</th><th class="num">出现次数</th><th class="num">可见时长</th><th class="num">交互次数</th><th class="num">交互组件被用过</th>
+  </tr></thead><tbody>${rows
+    .map((r) => `<tr><td><code>${esc(r.component)}</code></td><td class="num">${r.interfaces}</td><td class="num">${r.sites}</td>
+      <td class="num">${seconds(r.visibleMs)}</td><td class="num">${r.interactions}</td>
+      <td class="num">${r.interactive ? `${r.used} / ${r.interactive}` : '<span class="muted">—</span>'}</td></tr>`)
+    .join('')}</tbody></table></div>`;
+}
+
+function sites(view) {
+  if (!view.sites.length) return '<p class="muted">这个界面还没有生成完（没有收到 generated 事件）。</p>';
+  return `<table><thead><tr><th class="num">site</th><th>组件</th><th>字面量 props</th><th class="num">可见</th><th class="num">交互</th></tr></thead><tbody>${view.sites
+    .map((s) => `<tr><td class="num mono">${s.site}</td>
+      <td style="padding-left:${8 + s.depth * 18}px"><code>${esc(s.component)}</code>${s.origin === 'markdown' ? ' <span class="muted">md</span>' : ''}</td>
+      <td class="mono">${esc(s.props) || '<span class="muted">—</span>'}</td>
+      <td class="num">${s.visibleMs ? seconds(s.visibleMs) : '<span class="muted">—</span>'}</td>
+      <td class="num">${s.interactions || '<span class="muted">—</span>'}</td></tr>`)
+    .join('')}</tbody></table>`;
+}
+
+function interfaces(list) {
+  if (!list.length) return '<p class="muted">还没有界面。</p>';
+  return `<div class="scroll"><table><thead><tr>
+    <th>时间</th><th>布局骨架</th><th class="num">组件</th><th class="num">可见</th><th class="num">交互</th><th class="num">动作</th><th class="num">错误</th>
+  </tr></thead><tbody>${list
+    .map((v) => {
+      const id = `${v.session}:${v.call}`;
+      const row = `<tr class="view" data-id="${esc(id)}" title="session ${esc(v.session)} · call ${esc(v.call)}">
+        <td class="muted" style="white-space:nowrap">${open.has(id) ? '▾' : '▸'} ${ago(v.first)}</td>
+        <td><code>${esc(v.skeleton ?? '（未生成完）')}</code></td>
+        <td class="num">${v.components}</td><td class="num">${seconds(v.visibleMs)}</td><td class="num">${v.interactions}</td>
+        <td class="num">${v.actions}</td><td class="num${v.errors ? ' warn' : ''}">${v.errors}</td></tr>`;
+      return open.has(id) ? row + `<tr class="detail"><td colspan="7">${sites(v)}</td></tr>` : row;
+    })
+    .join('')}</tbody></table></div>`;
+}
+
+function render(s) {
+  $('#status').textContent = s.last ? `最后一条事件：${ago(s.last)}` : '还没有事件';
+  if (!s.events) {
+    $('#app').innerHTML = `<section class="empty">还没有数据。<br>在 DeepSeek Harness 里让模型调用 <code>render_ui</code> 生成一个界面，看一看、点一点，几秒后这里就会出现。</section>`;
+    return;
+  }
+  $('#app').innerHTML = `
+    <div class="tiles">
+      <div class="tile"><span class="muted">界面</span><b>${s.interfaces}</b></div>
+      <div class="tile"><span class="muted">可见时长</span><b>${seconds(s.visibleMs)}</b></div>
+      <div class="tile"><span class="muted">交互次数</span><b>${s.interactions}</b></div>
+      <div class="tile"><span class="muted">动作</span><b>${s.actions.reduce((n, r) => n + r.count, 0)}</b></div>
+      <div class="tile"><span class="muted">事件</span><b>${s.events}</b></div>
+    </div>
+    <section><h2>组件</h2>${components(s.components)}</section>
+    <div class="grid">
+      <section><h2>样式（字面量 props）</h2>${bars(s.props, 'prop', '还没有字面量 props。')}</section>
+      <section><h2>布局骨架</h2>${bars(s.skeletons, '骨架', '还没有界面。')}</section>
+    </div>
+    <div class="grid">
+      <section><h2>动作</h2>${bars(s.actions, '动作 ← 前一刻碰过的组件', '还没有 ui.send / copy / open。')}</section>
+      <section><h2>改过的 state</h2>${bars(s.state, 'state', '用户还没改过 state。')}</section>
+      <section><h2>诊断与问题</h2>${bars(s.diagnostics, '编译诊断', '没有编译诊断。')}${s.issues.length ? '<div style="height:12px"></div>' + bars(s.issues, '运行时问题', '') : ''}</section>
+    </div>
+    <section><h2>每个界面</h2><p class="muted" style="margin:0 0 8px">点一行展开它的每个组件（按源码顺序缩进）。</p>${interfaces(s.list)}</section>
+    <section><details id="raw"${rawOpen ? ' open' : ''}><summary><h2 style="display:inline">最近事件</h2> <span class="muted">（最新在前，原样）</span></summary>
+      <pre>${esc(s.recent.map((e) => JSON.stringify(e)).join('\n'))}</pre></details></section>`;
+}
+
+let busy = false;
+async function load() {
+  if (busy) return;
+  busy = true;
+  try {
+    const res = await fetch('/api/summary', { cache: 'no-store' });
+    render(await res.json());
+  } catch (e) {
+    $('#status').textContent = `读不到数据：${e.message}（插件所在的 Harness 还在运行吗？）`;
+  } finally {
+    busy = false;
+  }
+}
+
+$('#app').addEventListener('click', (e) => {
+  const row = e.target.closest('tr.view');
+  if (!row) return;
+  const id = row.dataset.id;
+  open.has(id) ? open.delete(id) : open.add(id);
+  load();
+});
+// toggle does not bubble; listen while it travels down instead.
+$('#app').addEventListener('toggle', (e) => {
+  if (e.target.id === 'raw') rawOpen = e.target.open;
+}, true);
+$('#refresh').addEventListener('click', load);
+$('#clear').addEventListener('click', async () => {
+  if (!confirm('清空所有统计数据？')) return;
+  await fetch('/api/clear', { method: 'POST' });
+  open.clear();
+  load();
+});
+setInterval(() => $('#auto').checked && !document.hidden && load(), 3000);
+load();
+</script>
+</body>
+</html>

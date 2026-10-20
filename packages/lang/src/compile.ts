@@ -1,6 +1,7 @@
 import type { Catalog } from '@tessera/catalog';
 import { bindingNames, generate } from './codegen';
 import { Diagnostics, type Diagnostic } from './diagnostics';
+import { skeletonOf, type Manifest, type SiteInfo } from './manifest';
 import { toUI } from './markdown';
 import { parse } from './parse';
 import type { Resolution } from './resolve';
@@ -28,6 +29,8 @@ export interface CompileResult extends CompiledProgram {
   readonly diagnostics: readonly Diagnostic[];
   /** Components the server should resolve; merge each result into `data` under its key. */
   readonly resolutions: readonly Resolution[];
+  /** Every component the program can render, with its site id, props and place in the tree. For analytics. */
+  readonly manifest: Manifest;
 }
 
 /** Components that take no children, which the parser treats as self-closing. */
@@ -46,6 +49,11 @@ export function compile(source: string, { catalog, data = {} }: CompileOptions):
   const ui = toUI(nodes, catalog, diags);
   const constants: string[] = [];
   const resolutions: Resolution[] = [];
-  const code = generate(directives, ui, { catalog, diags, constants, data, bindings: new Set(bindingNames(data)), resolutions });
-  return { code, constants, data, diagnostics: diags.list, resolutions };
+  const sites: SiteInfo[] = [];
+  const state: string[] = [];
+  const lets: string[] = [];
+  const bindings = new Set(bindingNames(data));
+  const code = generate(directives, ui, { catalog, diags, constants, data, bindings, resolutions, sites, state, lets });
+  const manifest: Manifest = { sites, skeleton: skeletonOf(sites), state, lets };
+  return { code, constants, data, diagnostics: diags.list, resolutions, manifest };
 }

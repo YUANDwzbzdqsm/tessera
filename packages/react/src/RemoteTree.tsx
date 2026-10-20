@@ -8,7 +8,7 @@ import type {
   RemoteReceiverText,
 } from '@remote-dom/core/receivers';
 import { eventNameFor, type Catalog, type PropIssue } from '@tessera/catalog';
-import { useCallback, useEffect, useSyncExternalStore, type ComponentType, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useSyncExternalStore, type ComponentType, type ReactNode } from 'react';
 
 /** Your implementation of each catalog component, by catalog name. */
 export type TesseraComponents = Readonly<Record<string, ComponentType<any>>>;
@@ -22,6 +22,25 @@ interface TreeContext {
   readonly catalog: Catalog;
   readonly components: TesseraComponents;
   readonly report: (issue: HostIssue) => void;
+}
+
+/** `"4"`, or `"4:1"` / `"4:1.0"` for items of (nested) {#each}. */
+const SITE = /^\d{1,6}(?::\d{1,7}(?:\.\d{1,7}){0,15})?$/;
+
+/** The site an element carries, or null when it is missing or malformed (it comes from the untrusted worker). */
+export function siteOf(value: unknown): string | null {
+  return typeof value === 'string' && SITE.test(value) ? value : null;
+}
+
+const SiteContext = createContext<string | null>(null);
+
+/**
+ * The site of the Tessera component this host component is drawing: its id within the answer, matching
+ * `manifest.sites[n].site` from the compiler (with an item index inside {#each}). Stable across streaming
+ * recompiles and sandbox restarts, so it can key analytics or saved UI state. Null outside a Tessera view.
+ */
+export function useTesseraSite(): string | null {
+  return useContext(SiteContext);
 }
 
 /** Re-renders when this one node changes. remote-dom notifies per node, so each node subscribes for itself. */
@@ -83,7 +102,12 @@ function RemoteElement({ node, ctx }: { node: RemoteReceiverElement; ctx: TreeCo
     const children = spec.children === 'none' ? undefined : <RemoteChildren parent={current} ctx={ctx} />;
     const Component = ctx.components[spec.name];
     if (Component) {
-      rendered = <Component {...props}>{children}</Component>;
+      // Through context rather than a prop, so host components that spread their props onto the DOM are unaffected.
+      rendered = (
+        <SiteContext.Provider value={siteOf(current.properties.site)}>
+          <Component {...props}>{children}</Component>
+        </SiteContext.Provider>
+      );
     } else {
       issues.push({ source: 'host', code: 'missing_component', message: `No host component registered for ${spec.name}` });
       rendered = children ?? null;

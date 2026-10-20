@@ -12,5 +12,5 @@
     "resolveJsonModule": true,
     "types": ["node", "vite/client"]
   },
-  "include": ["packages/*/src", "packages/*/test", "demo/src"]
+  "include": ["packages/*/src", "packages/*/test", "demo/src", "integrations/*/src", "integrations/*/test"]
 }

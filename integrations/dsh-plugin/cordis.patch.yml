@@ -1,0 +1,7 @@
+# The Tessera bundle patch: one row over the profile root. The row is addressed by `id`, so a later layer
+# (say the profile's own cordis.patch.yml) can disable it. The name is this package's name, resolved from the
+# profile's node_modules after `dsh plugin --profile <name> add <path to this folder>`.
+
+- insert:
+    - id: tessera
+      name: 'dsh-plugin-tessera'
