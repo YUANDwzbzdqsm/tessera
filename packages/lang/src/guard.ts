@@ -210,9 +210,14 @@ export function guardExpression(source: string, scope: ReadonlySet<string>): Gua
 /**
  * Member paths rooted at a binding, e.g. `p1.price` in `{p1.price * 2}`, with the first segment that does not exist
  * in `data`. Only fixed paths are checked (dotted or literal keys); dynamic keys are left to run time.
+ *
+ * A missing last key is not reported where the expression already falls back on it: `p1.note ?? "—"`,
+ * `p1.note || "—"`, `p1.meta?.title`. Reading it gives undefined and the fallback takes over. A missing key in the
+ * middle (`p1.meta.title ?? "—"` without meta) is still reported: reading through it throws before any fallback.
  */
 export function missingBindingPaths(ast: unknown, data: Readonly<Record<string, unknown>>, bindings: ReadonlySet<string>): string[] {
   const missing: string[] = [];
+  const fallback = new WeakSet<N>();
   const visit = (node: N | null | undefined, shadowed: ReadonlySet<string>): void => {
     if (!node || typeof node !== 'object') return;
     if (node.type === 'MemberExpression' || node.type === 'Identifier') {
@@ -225,7 +230,8 @@ export function missingBindingPaths(ast: unknown, data: Readonly<Record<string, 
           if (value !== null && value !== undefined && typeof value !== 'object') return;
           // `in` also sees inherited members, so items.map and items.length pass.
           if (value === null || value === undefined || !(key in (value as object))) {
-            missing.push(path.slice(0, i + 1).join('.'));
+            const handled = value !== null && value !== undefined && i === path.length - 1 && fallback.has(node);
+            if (!handled) missing.push(path.slice(0, i + 1).join('.'));
             return;
           }
           value = (value as Record<string, unknown>)[key];
@@ -233,6 +239,9 @@ export function missingBindingPaths(ast: unknown, data: Readonly<Record<string, 
         return;
       }
     }
+    if (node.type === 'LogicalExpression' && (node.operator === '??' || node.operator === '||')) fallback.add(node.left);
+    if (node.type === 'MemberExpression' && node.optional) fallback.add(node.object);
+    if (node.type === 'CallExpression' && node.optional) fallback.add(node.callee);
     if (node.type === 'ArrowFunctionExpression') {
       const inner = new Set(shadowed);
       for (const p of node.params) if (p.type === 'Identifier') inner.add(p.name);

@@ -36,12 +36,17 @@ export function chatBody({ messages }: ChatRequest, signal: AbortSignal, config:
 }
 
 /** The answer's text as it streams. Reasoning tokens, if the model sends any, are skipped. */
-async function* modelText(messages: readonly { role: string; content: string }[], signal: AbortSignal, config: ModelConfig): AsyncGenerator<string> {
+export async function* modelText(
+  messages: readonly { role: string; content: string }[],
+  signal: AbortSignal,
+  config: ModelConfig,
+  temperature = 0.3,
+): AsyncGenerator<string> {
   if (!config.apiKey) throw new Error('服务端没有配置 DEEPSEEK_API_KEY（环境变量，或 demo/.env.local）');
   const response = await fetch(`${config.baseUrl.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${config.apiKey}` },
-    body: JSON.stringify({ model: config.model, messages, stream: true, temperature: 0.3 }),
+    body: JSON.stringify({ model: config.model, messages, stream: true, temperature }),
     signal,
   });
   if (!response.ok || !response.body) throw new Error(`模型接口返回 HTTP ${response.status}：${(await response.text()).slice(0, 200)}`);

@@ -4,7 +4,8 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "demo"
+    "demo",
+    "integrations/*"
   ],
   "scripts": {
     "build:sandbox": "node scripts/build-sandbox.mjs",
@@ -16,7 +17,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check": "npm run typecheck && npm test && npm run test:sandbox",
     "eval": "node scripts/eval.mjs",
-    "walkthrough": "node docs/walkthrough/build-all.mjs"
+    "walkthrough": "node docs/walkthrough/build-all.mjs",
+    "build:dsh": "npm run build -w dsh-plugin-tessera"
   },
   "devDependencies": {
     "@types/node": "22.20.5",

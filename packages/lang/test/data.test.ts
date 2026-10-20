@@ -34,6 +34,38 @@ describe('tool data bindings', () => {
     ]);
   });
 
+  it('does not report a missing last field that the expression already falls back on', () => {
+    const pkg = { pkg: { name: 'tessera', meta: { tags: ['ui'] } } };
+    const guarded = [
+      '{pkg.version ?? "未声明"}',
+      '{pkg["version"] ?? "未声明"}',
+      '{pkg.version || "未声明"}',
+      '{pkg.meta.owner ?? "—"}',
+      '{pkg.links?.home}',
+      '{pkg.links?.home ?? "—"}',
+      '{pkg.format?.("x")}',
+      '{@let ver = pkg.version ?? "0.0.0"}\n{ver}',
+    ];
+    for (const source of guarded) expect(codes(compile(source, { catalog, data: pkg })), source).toEqual([]);
+    expect(text(render(compile('版本 {pkg.version ?? "未声明"}', { catalog, data: pkg })).tree)).toBe('版本 未声明');
+  });
+
+  it('still reports plain uses, and missing fields a fallback cannot catch', () => {
+    const pkg = { pkg: { name: 'tessera', meta: null } };
+    const reported = [
+      ['{pkg.version}', 'pkg.version'],
+      // The fallback guards the whole expression, not a missing field inside it.
+      ['{pkg.version.trim() ?? "—"}', 'pkg.version'],
+      ['{pkg.links.home ?? "—"}', 'pkg.links'],
+      // Reading a key of null throws before ?? is reached.
+      ['{pkg.meta.owner ?? "—"}', 'pkg.meta.owner'],
+    ] as const;
+    for (const [source, path] of reported) {
+      const r = compile(source, { catalog, data: pkg });
+      expect(r.diagnostics.map((d) => `${d.code}: ${d.message}`), source).toEqual([`unknown_field: ${path} does not exist in the tool data`]);
+    }
+  });
+
   it('does not let a directive shadow tool data', () => {
     expect(codes(compile('{@state p1 = 1}', { catalog, data: PRODUCTS }))).toEqual(['duplicate_name']);
   });

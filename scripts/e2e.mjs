@@ -161,6 +161,16 @@ console.log(`phase 1: production build at ${staticServer.resolvedUrls.local[0]}`
     await card('conflicts').waitFor({ timeout: 5_000 });
   });
 
+  await check('every PullRequest status renders, switched from the controls sample', async () => {
+    await page.getByRole('button', { name: 'PR 状态切换' }).click();
+    const states = { 创建中: 'opening', 检查中: 'checking', 有冲突: 'conflicts', 解决中: 'resolving', 可以合并: 'ready', 合并中: 'merging', 已合并: 'merged', 已关闭: 'closed' };
+    for (const [label, status] of Object.entries(states)) {
+      await pane.getByRole('button', { name: label, exact: true }).click();
+      await pane.locator(`article.t-pr[data-status="${status}"]`).waitFor({ timeout: 5_000 });
+    }
+    await pane.getByRole('button', { name: '有冲突', exact: true }).click();
+  });
+
   await check('normal flows report no host or runtime issues (props removed on switch are not sent as "")', async () => {
     // The flow above switched team -> checklist -> broken: Box lost padding/border, Title/Text were reused.
     const issues = (await page.getByTestId('log').innerText()).split('\n').filter((l) => /^\[(host|runtime)\]/.test(l.trim()));

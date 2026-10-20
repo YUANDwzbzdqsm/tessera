@@ -98,6 +98,20 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com # 可选；任何 OpenAI 兼容接口
 - 只把模型的正文交给 `createSSEStream`，推理内容不转发。
 - 图片用的是演示里的本地占位图解析器，不会调用外部搜索。
 
+## 试用：短视频信息流里的广告位
+
+`npm run dev` 之后打开 http://localhost:5180/feed.html。左边是一部仿短视频信息流的手机，第二条是赞助视频；视频开始一会儿后，底部弹出一张广告卡片。右边的面板负责生成卡片内容。
+
+- **平台和广告各管一半。** 卡片的外框、关闭按钮、什么时候出现，都由宿主页面决定；卡片里面是一段 Tessera 程序。
+- **广告目录**（`demo/src/feed/adCatalog.ts`）：`Seal`（锯齿边徽章）、`Headline`、`PromoCode`、`Price`、`Countdown`、`Thumb`、`Perforation`（撕口线）、`Button`，再加入门组件里的 `Box`、`Caption`、`Badge`、`Slider`、`Progress`。外观全部写在 `AdComponents.tsx` 里，模型只能选组件，颜色只能从固定色板里挑。
+- **事实只能绑定。** 促销码、价格、截止时间都来自广告数据（data 表），模型写 `{offer.code}`。商品图只能引用素材库里的 `asset:…`，不能写 URL。面板会检查源码里有没有直接抄写数据里的值。
+- **三个场景**：包邮券（仿真实广告卡片，点“领取”复制促销码并弹出提示）、限时特价（商品图、划线价、倒计时）、凑单计算（拖动件数，实时算到手价）。每个场景都有手写示例，没配 key 时也能用“回放手写示例”走一遍流式。
+- **用模型生成**走 `POST /api/ad`（`demo/src/server/ad.ts`），复用聊天页的 DeepSeek 配置。系统提示词是 `systemPrompt(adCatalog, { intro, data, extra })`，在面板的“系统提示词”页可以看到。生成的变体会记在“生成记录”里，可以来回切换比较。
+
+## 在 DeepSeek Harness 里用
+
+`integrations/dsh-plugin` 是一个 DeepSeek Harness 插件：模型调用 `render_ui` 工具写 Tessera 标记，界面直接出现在 Harness 的聊天记录里，参数还在生成时就开始渲染；按钮的 `ui.send` 会作为用户消息发出，颜色跟着 Harness 的浅色和深色主题走。`npm run build:dsh` 构建，安装方法和工作方式见 [它的 README](integrations/dsh-plugin/README.md)。
+
 ## 在应用里使用
 
 ```tsx
@@ -210,7 +224,7 @@ systemPrompt(catalog, { data: { p1: product1, p2: product2 } });
 
 ### 固定样式的组件
 
-目录里只有组件名和 props，样式全在宿主组件里，所以设计固定的富组件和 Slider 的接法一样：只开放内容类的 props，外观写死在宿主里。演示里的 `<PullRequest>` 是一个例子（示例“合并请求”）：
+目录里只有组件名和 props，样式全在宿主组件里，所以设计固定的富组件和 Slider 的接法一样：只开放内容类的 props，外观写死在宿主里。演示里的 `<PullRequest>` 是一个例子：示例“合并请求”按剧情走一遍，“PR 状态切换”可以直接切 8 种状态、调分支图的形状。
 
 - **目录**（`demo/src/pullRequest.ts`）：标题、分支、提交数、增删行数、冲突文件，再加一个 `status` 枚举（`opening` → `checking` → `conflicts` / `ready` → `resolving` / `merging` → `merged`，或 `closed`），以及 `onResolve` / `onMerge` 两个事件。
 - **宿主**（`demo/src/PullRequestCard.tsx`）：卡片、按真实像素宽度画的分支图、状态行。状态变化时元素不会重新挂载，颜色、合并线、节点都用 CSS 过渡；合并时合并线会自己画出来。点了按钮先显示“解决中 / 合并中”，等新的 `status` 到了再替换。
@@ -334,16 +348,17 @@ npm run eval -- --base-url https://ark.cn-beijing.volces.com/api/v3 --model doub
 
 ```bash
 npm install
-npm run dev          # 演示页 http://localhost:5180（含流式接口）；?isolation=worker 切换到纯 Worker 模式；/chat.html 是接 DeepSeek 的聊天页
+npm run dev          # 演示页 http://localhost:5180（含流式接口）；?isolation=worker 切换到纯 Worker 模式；/chat.html 是接 DeepSeek 的聊天页；/feed.html 是短视频广告位
 npm run build:sandbox # 重新构建预构建的沙箱 Worker
 npm run check        # 类型检查 + 单元测试 + SES 沙箱测试
 npm run e2e          # 用本机 Chrome 跑端到端检查（CHROME_PATH 可覆盖路径）：
                      #   阶段 1 生产构建：M1 交互闭环 + M3 隔离与看门狗；阶段 2 开发服务器：M2 流式
 npm run eval -- …    # 用真实模型跑基准提示（见“评测（M5）”）
 npm run walkthrough  # 重新生成代码导读视频页（见 docs/walkthrough/README.md）
+npm run build:dsh    # 构建 DeepSeek Harness 插件（integrations/dsh-plugin/lib）
 ```
 
-当前结果：类型检查通过；单元测试 101 项、SES 沙箱测试 9 项、端到端检查 27 项全部通过。端到端截图在 `.e2e/demo.png`。
+当前结果：类型检查通过；单元测试 111 项、SES 沙箱测试 9 项、端到端检查 28 项全部通过。端到端截图在 `.e2e/demo.png`。
 
 M4 相关的关键检查：
 - 商品对比里的价格来自 data 表，编译结果里没有价格。

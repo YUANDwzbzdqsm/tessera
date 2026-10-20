@@ -212,7 +212,7 @@ function BranchGraph({ status, base, branch, commits, behind, synced, left }: {
         <g className="t-pr-target" transform={`translate(${g.end} ${MAIN_Y})`}>
           <circle className="t-pr-node" r={7} />
           {BUSY.has(status) && status !== 'opening' && <circle className="t-pr-spin" r={11} pathLength={1} />}
-          <TargetGlyph status={status} />
+          <TargetGlyph status={status} left={left} />
         </g>
       </svg>
 
@@ -249,11 +249,12 @@ function targetLabel(status: PrStatus, left: number): string | null {
   }
 }
 
-function TargetGlyph({ status }: { status: PrStatus }) {
-  if (status === 'conflicts' || status === 'resolving') {
+function TargetGlyph({ status, left }: { status: PrStatus; left: number }) {
+  // Conflicts all resolved reads as done even before the status moves on, matching the "已解决" label.
+  if ((status === 'conflicts' || status === 'resolving') && left > 0) {
     return <path key="warn" className="t-pr-glyph" d="M0 -3.2 V0.6 M0 3 V3.1" />;
   }
-  if (status === 'ready' || status === 'merging') {
+  if (status === 'conflicts' || status === 'resolving' || status === 'ready' || status === 'merging') {
     return <path key="ok" className="t-pr-glyph" d="M-3 0.2 L-0.8 2.4 L3.2 -2" />;
   }
   return null;

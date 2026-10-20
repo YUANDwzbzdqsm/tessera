@@ -10,6 +10,7 @@ import { defineConfig, loadEnv, type Plugin, type ViteDevServer } from 'vite';
  * - POST /api/chat: sends the conversation to DeepSeek (OpenAI-compatible) and streams the answer the same way.
  *   DEEPSEEK_API_KEY (plus optional DEEPSEEK_BASE_URL / DEEPSEEK_MODEL) come from the environment or demo/.env.local,
  *   are read here on the server, and are never exposed to the page (only VITE_-prefixed variables are).
+ * - POST /api/ad: one sponsored card for the feed demo, from the model or a replayed sample, with the ad catalog.
  */
 function endpoints(env: Record<string, string>): Plugin {
   const model = {
@@ -22,6 +23,7 @@ function endpoints(env: Record<string, string>): Plugin {
     configureServer(server) {
       sseRoute(server, '/api/stream', async (body, signal) => (await server.ssrLoadModule('/src/server/endpoint.ts')).streamBody(body, signal));
       sseRoute(server, '/api/chat', async (body, signal) => (await server.ssrLoadModule('/src/server/chat.ts')).chatBody(body, signal, model));
+      sseRoute(server, '/api/ad', async (body, signal) => (await server.ssrLoadModule('/src/server/ad.ts')).adBody(body, signal, model));
     },
   };
 }
@@ -75,6 +77,7 @@ export default defineConfig(({ mode }) => ({
       input: {
         main: fileURLToPath(new URL('./index.html', import.meta.url)),
         chat: fileURLToPath(new URL('./chat.html', import.meta.url)),
+        feed: fileURLToPath(new URL('./feed.html', import.meta.url)),
       },
     },
   },
