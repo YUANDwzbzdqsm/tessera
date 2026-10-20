@@ -4,7 +4,7 @@
 
 思路参考了第三方对 ChatGPT Intelligent UI 的公开分析，是按公开描述做的独立实现：没有使用 ChatGPT 的任何代码，语言语法也是自己定义的。Tessera 是暂用的名字。
 
-> 当前进度：M1–M5 已完成，即非流式闭环、流式编译 + SSE 补丁、隔离加固、数据与传输、真实模型评测。在 15 个基准提示上，deepseek-flash 一次通过 14/15；doubao-seed-2.1-pro 关思考时 14/15，开思考时 15/15。剩下的偶发错误经过一轮反馈都修好了。详见“评测（M5）”。
+> 当前进度：M1–M6 已完成，即非流式闭环、流式编译 + SSE 补丁、隔离加固、数据与传输、真实模型评测、埋点与统计。在 15 个基准提示上，deepseek-flash 一次通过 14/15；doubao-seed-2.1-pro 关思考时 14/15，开思考时 15/15。剩下的偶发错误经过一轮反馈都修好了。详见“评测（M5）”。M6 让每条回答能说清自己由哪些组件组成、用户看了哪些、动了哪些，见“埋点与统计（M6）”。
 
 ## 一条回复的旅程
 
@@ -37,10 +37,10 @@ SSE：event: patch  data: {seq, kind, ops}  ← 代码只发变化的那一段�
 | 包 | 作用 | 运行在 |
 | --- | --- | --- |
 | `@tessera/catalog` | 组件目录：zod props 模式、事件、子内容类型、服务端解析器（`resolver`）、降级渲染（`fallback`）；校验；生成提示词里的组件说明 | 任意环境 |
-| `@tessera/lang` | 编译器 `compile()`、表达式守卫、`systemPrompt()`、`feedbackForModel()`、`toFallbackMarkdown()`、`resolveAll()` | 服务器或浏览器 |
+| `@tessera/lang` | 编译器 `compile()`（结果里带 `manifest`）、表达式守卫、`systemPrompt()`、`feedbackForModel()`、`toFallbackMarkdown()`、`resolveAll()` | 服务器或浏览器 |
 | `@tessera/stream` | 补丁协议（含 `append` / `splice`）、`applyOps`、SSE 编解码、`readTesseraStream`；`@tessera/stream/server` 是流式编译器和 SSE 输出（工具数据、解析器、降级版） | 主入口任意环境；`/server` 在服务器 |
 | `@tessera/runtime` | 沙箱运行时。主入口只导出类型；`./worker` 是 Worker 入口源码，`./sandbox-worker.js` 是预构建的单文件版本（给 iframe 用） | Web Worker |
-| `@tessera/react` | `<TesseraView>`；沙箱工厂 `iframeSandbox` / `workerSandbox`；`SandboxController`（看门狗）；`useTesseraStream()` | 宿主页面（React ≥ 18） |
+| `@tessera/react` | `<TesseraView>`；沙箱工厂 `iframeSandbox` / `workerSandbox`；`SandboxController`（看门狗）；`useTesseraStream()`；`useTesseraSite()` | 宿主页面（React ≥ 18） |
 | `eval` | 基准提示（`cases.mjs`）和 SES 回放 Worker；运行器是 `scripts/eval.mjs` | Node |
 | `demo` | 演示页：可编辑源码、实时编译、流式播放（开发服务器里自带一个假模型 + SSE 接口）、诊断、编译结果、系统提示词、动作日志 | 浏览器 |
 
@@ -110,7 +110,7 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com # 可选；任何 OpenAI 兼容接口
 
 ## 在 DeepSeek Harness 里用
 
-`integrations/dsh-plugin` 是一个 DeepSeek Harness 插件：模型调用 `render_ui` 工具写 Tessera 标记，界面直接出现在 Harness 的聊天记录里，参数还在生成时就开始渲染；按钮的 `ui.send` 会作为用户消息发出，颜色跟着 Harness 的浅色和深色主题走。`npm run build:dsh` 构建，安装方法和工作方式见 [它的 README](integrations/dsh-plugin/README.md)。
+`integrations/dsh-plugin` 是一个 DeepSeek Harness 插件：模型调用 `render_ui` 工具写 Tessera 标记，界面直接出现在 Harness 的聊天记录里，参数还在生成时就开始渲染；按钮的 `ui.send` 会作为用户消息发出，颜色跟着 Harness 的浅色和深色主题走。`npm run build:dsh` 构建，安装方法和工作方式见 [它的 README](integrations/dsh-plugin/README.md)。插件还在本机提供一个统计页（M6），记录每个界面由哪些组件组成、被看了多久、被怎么用。
 
 ## 在应用里使用
 
@@ -232,6 +232,31 @@ systemPrompt(catalog, { data: { p1: product1, p2: product2 } });
 
 数组、对象类型的 prop 会在提示词里写出结构，比如 `conflicts?: { file: string, count: number(0..) }[]`，不会只写一个 `array`。
 
+### 埋点与统计（M6）
+
+编译器知道一条回答里每个组件写在哪、长什么样，宿主看得到每一次跨沙箱的交互。M6 用一个稳定的 id（site）把这两边连起来，埋点不需要侵入模型写的程序。
+
+```ts
+const { manifest } = compile(source, { catalog });
+manifest.sites[4];   // { site: 4, component: 'Slider', parent: 3, origin: 'tag', pos: 109,
+                     //   literalProps: { min: 1, max: 50 }, dynamicProps: ['value'], events: ['onChange'],
+                     //   loopDepth: 0, conditional: false }
+manifest.skeleton;   // 'Title Text(Bold) Box(Slider Title Button)'
+manifest.state;      // ['seats']，也是宿主收到的 state 的键
+
+// 宿主组件里：自己是哪个组件
+function MySlider(props) {
+  const site = useTesseraSite();  // '4'；{#each} 里是 '4:0'、'4:1'，嵌套时 '4:1.0'
+  …
+}
+```
+
+- **manifest**：按源码顺序列出程序可能画出的每个组件：父组件、来自标签还是 Markdown、源码位置、通过校验的字面量 props（被丢掉的不在里面）、绑定表达式的 props、事件、外面套了几层 `{#each}`、是否在 `{#if}` 分支里。另外有布局骨架（重复的兄弟写成 `Text×3`，循环里的写成 `Card[]`）和 `@state` / `@let` 的名字。它和程序出自同一棵树，所以和程序完全对应。
+- **site 是组件在源码中的顺序号（先父后子）**，不是源码位置：Markdown 转出来的组件没有自己的位置，以组件开头的段落又和那个组件位置相同。模型的输出只往后追加，所以写完的组件在流式重编译、沙箱重建、刷新之后 site 都不变。测试对 4 段示例回答的每个前缀都编译一遍来验证这一点。
+- **怎么到宿主**：codegen 给每个组件注入 `"__site"`，运行时把它从 props 里拿出来，作为元素单独的 `site` 属性传过桥（不影响 props 的复用），宿主校验格式后通过 context 交给宿主组件。site 来自不可信的 Worker，只能当提示用；要采信就拿它和 manifest 核对。
+- **流式**：SSE 里不带 manifest。服务端在 `onDone` 里 `compile(doc.text, { catalog, data }).manifest` 就能拿到。
+- **第一个用上它的地方是 DeepSeek Harness 插件**：每个 `render_ui` 界面把 manifest、每个组件的可见时长、交互、动作、改过的 state 和问题上报给本机的一个小服务，打开 http://127.0.0.1:4317 就是统计页（组件使用量、字面量 props、布局骨架、每个界面逐个组件的明细）。上报什么、口径和边界见 [插件 README 的“统计”](integrations/dsh-plugin/README.md#统计m6)。
+
 ## 评测（M5）
 
 `npm run eval` 用真实模型跑 17 个基准提示（`eval/cases.mjs`）。其中 14 个应该出界面：计算器、清单、对比、带图介绍、小测验、代码加小工具等，有 3 个带工具数据。另外 3 个不应该出组件：2 个纯问答，1 个写代码。每条回答走和线上一样的流程：
@@ -342,6 +367,9 @@ npm run eval -- --base-url https://ark.cn-beijing.volces.com/api/v3 --model doub
 - **不带子元素的组件一律按自闭合处理。** `<Divider>`、`<Slider …>` 漏写了 `/`，就当作 `<Divider />`，报 `missing_self_close` 警告；配对的 `</Divider>` 直接忽略。像 HTML 的 void 元素那样，它们不会“吞掉”后面的内容。两个评测模型都犯过这个错，修之前会丢掉整段回答。
 - **只嵌在元素里的 `{@state}` / `{@let}` 会提到顶层**，报 `directive_hoisted` 警告。元素不引入作用域，所以意思不变。模型常把整个回答包进一个 `<Box>`，连声明一起。放在 `{#if}` / `{#each}` 里的仍然算错误，因为提上来意思就变了。
 - **降级版的解释器只覆盖纯表达式的常用子集**：算术、比较、模板字符串、成员访问、`Math.*`、字符串和数组方法（含 `map` / `filter` / `reduce` 等回调）。超出范围的部分显示 `…`，不会报错。
+- **`{#if}` 的分支按源码顺序编译**（M6 之前是倒着编译的），这样分支里的 site 在流式时才不变。附带的结果是多分支 `{#if}` 里的诊断也按源码顺序排列。
+- **`{#each}` 的循环变量不能以 `__` 开头**，否则报 `reserved_name`、整块丢弃：每层循环有一个隐藏的下标变量（`__k0`、`__k1`），用来给循环里的组件拼实例 id，内外层用同一个下标名也不会互相覆盖。
+- **每个组件的代码里多一个 `"__site": "N"`**，没有 props 的组件也从 `null` 变成一个对象，所以生成的代码略长；流式时代码占比的端到端检查仍然通过。
 - **体积**（演示构建，gzip 后）：沙箱 Worker 约 50 KB（SES + Preact + remote-dom + threads），只在第一次启动时下载一次。主包约 142 KB，含 React、zod 和 acorn；如果只在服务端编译，acorn 可以不进浏览器。
 
 ## 命令
@@ -355,10 +383,16 @@ npm run e2e          # 用本机 Chrome 跑端到端检查（CHROME_PATH 可覆�
                      #   阶段 1 生产构建：M1 交互闭环 + M3 隔离与看门狗；阶段 2 开发服务器：M2 流式
 npm run eval -- …    # 用真实模型跑基准提示（见“评测（M5）”）
 npm run walkthrough  # 重新生成代码导读视频页（见 docs/walkthrough/README.md）
-npm run build:dsh    # 构建 DeepSeek Harness 插件（integrations/dsh-plugin/lib）
+npm run build:dsh    # 构建 DeepSeek Harness 插件（integrations/dsh-plugin/lib）；重启 Harness 后统计页在 http://127.0.0.1:4317
 ```
 
-当前结果：类型检查通过；单元测试 111 项、SES 沙箱测试 9 项、端到端检查 28 项全部通过。端到端截图在 `.e2e/demo.png`。
+当前结果：类型检查通过；单元测试 161 项（含 Harness 插件）、SES 沙箱测试 12 项、端到端检查 28 项通过。其中 `packages/lang/test/data.test.ts` 的“always terminates”按实际耗时判断（1 秒内），机器繁忙时偶尔会超过。端到端截图在 `.e2e/demo.png`。
+
+M6 相关的关键检查：
+- 对 4 段示例回答的每个前缀编译一遍：已经写完的组件，site 和最终结果完全一致。
+- 真实运行时（SES + remote-dom 的 DOM polyfill）里，宿主收到的 site 和 manifest 一致，props 里没有 `__site`；流式重编译后已在屏幕上的元素 site 不变；`{#each}` 每项一个实例 id，嵌套循环用同一个下标名也对。
+- 宿主组件用 `useTesseraSite()` 拿到自己的 site，缺失或格式不对的一律当作没有。
+- Harness 插件：收集服务只收本机页面发来的事件，拒绝网站和其他主机名，限制请求体大小，只有统计页能清空；在真实 Chrome 里，只有滚动到的界面才累计可见时长，交互、动作（`copy ← Button`）和 state 归到正确的组件，统计页在浅色、深色和手机宽度下都正常。
 
 M4 相关的关键检查：
 - 商品对比里的价格来自 data 表，编译结果里没有价格。
@@ -389,4 +423,5 @@ M3 相关的关键检查：
 | **M3** ✅ | 隔离加固：不透明源 iframe + CSP、看门狗（渲染超时、心跳、隔离、重建、重启上限）、状态镜像（重启恢复、刷新保留）、`feedbackForModel()` |
 | **M4** ✅ | 数据与传输：工具结果按 ID 绑定（模型只写引用，字段校验）、服务端解析组件（`<Image query>` + `resolveAll` / 流式 `data` 批次）、会求值的 Markdown 降级版、代码 `splice` 差量传输 |
 | **M5** ✅ | 提示词与评测：15 个基准提示 + `npm run eval`（流式计时、SES 回放并触发回调、检查项、反馈修复轮、`--regrade`）；按结果修了编译器（void 组件自闭合、声明提升、原生 HTML 处理）、提示词和目录（`Progress`） |
-| 之后 | 可选：独立域名的 runner 页面；更多模型和更大的基准集 |
+| **M6** ✅ | 埋点与统计：编译结果带 manifest（每个组件的 site、父组件、来源、字面量 / 绑定 props、事件、循环与条件，布局骨架，state 名）；site 按源码顺序编号、流式不变，经运行时作为元素属性传到宿主，`useTesseraSite()`；Harness 插件的本机统计：收集服务 + 统计页，上报 manifest、可见时长、交互、动作、state 和问题 |
+| 之后 | 可选：独立域名的 runner 页面；更多模型和更大的基准集；把埋点做进核心包（`TesseraView` 的事件回调，运行时按 site 归属动作和 state 的变化）；按统计结果调整目录和提示词 |
